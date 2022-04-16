@@ -1,0 +1,58 @@
+package nerf_change
+
+import ai.djl.ndarray._
+import ai.djl.ndarray.types._
+import ai.djl.training.dataset._
+import load_llff._
+
+object dataSetFnc {
+
+  def get_rays_np(H: Int, W: Int, focal: Double, c2w: NDArray): (NDArray, NDArray) = {
+    val manager = c2w.getManager
+    val i = manager.arange(W).reshape(1, W).tile(0, H)
+    val j = manager.arange(H).reshape(H, 1).tile(1, W)
+    val dirs = NDArrays.stack(new NDList(i.sub(W * .5).div(focal), j.sub(H * .5).div(focal).neg(), manager.ones(i.getShape).neg()), -1)
+    val rays_d = dirs.expandDims(-2).expandDims(-2).mul(c2w.get(":,:,:3")).sum(Array(-1))
+    (rays_d.reshape(-1, 3), c2w.get(":,:,-1").broadcast(rays_d.getShape).reshape(-1, 3))
+  }
+
+  def getDataSet(config: nerfConfig, manager: NDManager): (Dataset, Dataset, Int) = {
+    val subManager = manager.newSubManager()
+    var (images, poses, bds, render_poses, i_test) = load_llff_data(config.datadir, 8, true, .75, false, manager = subManager)
+    val hwf = poses.get("0,:3,-1").toFloatArray
+    poses = poses.get(":,:3,:4")
+    hwf(0) = hwf(0).toInt
+    hwf(1) = hwf(1).toInt
+    //该数据集中共有二十个数据，抓数据0号和10号做测试集，其他做训练集
+    //i_test = Array(0, 10)
+    //val i_train = (for (i <- 0 until images.getShape.get(0).toInt if !i_test.contains(i)) yield i).toArray
+    val trainImages = images.get("1:10").concat(images.get("11:"), 0).transpose(1, 2, 0, 3).reshape(-1, 3).tile(1, 2)
+    val testImages = images.get(":1").concat(images.get("10:11"), 0).transpose(1, 2, 0, 3).reshape(-1, 3).tile(1, 2)
+    val trainPoses = poses.get("1:10").concat(poses.get("11:"), 0)
+    val testPoses = poses.get(":1").concat(poses.get("10:11"), 0)
+    val (rays_d_train_temp, rays_o_train) = get_rays_np(hwf(0).toInt, hwf(1).toInt, hwf(2), trainPoses)
+    val (rays_d_test_temp, rays_o_test) = get_rays_np(hwf(0).toInt, hwf(1).toInt, hwf(2), testPoses)
+
+    val rays_d_train_norm = rays_d_train_temp.norm(Array(-1), true)
+    val bounds_train = subManager.zeros(new Shape(rays_d_train_temp.getShape.get(0), 1)).concat(rays_d_train_norm, 1)
+    val rays_d_train = rays_d_train_temp.div(rays_d_train_norm)
+    val rays_d_test_norm = rays_d_test_temp.norm(Array(-1), true)
+    val bounds_test = subManager.zeros(new Shape(rays_d_test_temp.getShape.get(0), 1)).concat(rays_d_test_norm, 1)
+    val rays_d_test = rays_d_test_temp.div(rays_d_test_norm)
+
+    trainImages.attach(manager)
+    testImages.attach(manager)
+    rays_d_train.attach(manager)
+    rays_d_test.attach(manager)
+    rays_o_train.attach(manager)
+    rays_o_test.attach(manager)
+    bounds_train.attach(manager)
+    bounds_test.attach(manager)
+
+    subManager.close()
+    //其他数据暂时先不用
+    val trainSet = new nerfDataSet(rays_o_train, rays_d_train, bounds_train, rays_d_train, trainImages, config.N_rand)
+    val testSet = new nerfDataSet(rays_o_test, rays_d_test, bounds_test, rays_d_test, testImages, config.N_rand)
+    (trainSet, testSet, trainImages.getShape.get(0).toInt)
+  }
+}
