@@ -4,6 +4,7 @@ import ai.djl.ndarray._
 import ai.djl.nn._
 import ArrayFnc._
 import ai.djl.ndarray.index._
+import ai.djl.ndarray.types.DataType
 
 import java.util.function._
 import scala.collection.JavaConverters._
@@ -93,14 +94,14 @@ class nerf(config: nerfConfig) {
     var alpha = addNoise(input.get(1)).getNDArrayInternal.relu().neg().mul(dist)
     val T = alpha.cumSum(1).exp()
     //最前面是1
-    alpha = NDArrays.sub(1, alpha.exp())
+    alpha = alpha.exp().sub(1).neg()
     val weight = alpha.get(to1).concat(T.get(toNeg1).mul(alpha.get(from1)), 1)
     val weight2 = weight.concat(T.get(fromNeg1), 1)
     new NDList(addBkgd(weight2.mul(rgb).sum(Array(1)), weight2), weight)
   }
 
   val getSample = if (config.lindisp) (t_vals: NDArray, near: NDArray, far: NDArray) => NDArrays.div(1, NDArrays.div(1, near).mul(NDArrays.sub(1, t_vals)).add(NDArrays.div(1, far).mul(t_vals)))
-  else (t_vals: NDArray, near: NDArray, far: NDArray) => near.mul(NDArrays.sub(1, t_vals)).add(far.mul(t_vals))
+  else (t_vals: NDArray, near: NDArray, far: NDArray) => near.mul(t_vals.sub(1).neg()).add(far.mul(t_vals))
 
   val givePerterb = if (config.perterb) (z_vals: NDArray) => {
     val manager = z_vals.getManager
@@ -157,7 +158,7 @@ class nerf(config: nerfConfig) {
     val rays_o = input.get(4)
     val rays_d = input.get(5)
 
-    val samples = manager.create(samplePdf(cdf.toFloatArray, z_vals.toFloatArray, cdf.getShape.get(0).toInt, config.N_samples, config.N_importance)).reshape(cdf.getShape.get(0), config.N_samples + config.N_importance, 1)
+    val samples = manager.create(samplePdf(cdf.toType(DataType.FLOAT32, false).toFloatArray, z_vals.toType(DataType.FLOAT32, false).toFloatArray, cdf.getShape.get(0).toInt, config.N_samples, config.N_importance)).reshape(cdf.getShape.get(0), config.N_samples + config.N_importance, 1)
     new NDList(rays_o.add(rays_d.mul(samples)), viewdirs, samples)
     //这个函数后续需要更多修改
   }

@@ -20,7 +20,8 @@ import java.lang.reflect.Parameter
 
 object test {
   def main(args: Array[String]): Unit = {
-    val manager = NDManager.newBaseManager()
+    val manager = NDManager.newBaseManager(Device.gpu())
+    print(ai.djl.util.cuda.CudaUtils.getCudaVersionString)
     //    val array = manager.arange(4).reshape(2, 2, 1)
     //    val array2 = manager.create(Array(1, 2)).reshape(2, 1)
     //    print(array2.sub(array))
@@ -76,10 +77,10 @@ object test {
     //      collector.close()
     //      subManager.close()
     //    }
-    val tst = manager.arange(1 << 20)
-    tst.percentile(10)
-    tst.close()
-    val a = 1
+    //    val tst = manager.arange(1 << 20)
+    //    tst.percentile(10)
+    //    tst.close()
+    //    val a = 1
     //    collector.backward(c.get(0))
     //    collector.close()
     //    print(c)

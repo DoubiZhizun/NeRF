@@ -2,7 +2,8 @@ package nerf_change
 
 import ai.djl._
 import ai.djl.metric._
-import ai.djl.ndarray.NDManager
+import ai.djl.modality.cv._
+import ai.djl.ndarray._
 import ai.djl.ndarray.types._
 import ai.djl.training._
 import ai.djl.training.evaluator._
@@ -21,7 +22,7 @@ object run_nerf {
     val config = nerfConfig(
       coarseBlock = coreBlockGenerator.getBlock(),
       fineBlock = coreBlockGenerator.getBlock(),
-      device = Device.cpu(),
+      device = Device.gpu(0),
       pos_L = 10,
       direction_L = 4,
       raw_noise_std = 1e0,
@@ -33,25 +34,32 @@ object run_nerf {
       N_rand = 1024,
       lrate = 5e-4,
       lrate_decay = 250,
-      datadir = ".\\data\\nerf_llff_data\\fern",
-      basedir = " .\\logs")
+      datadir = "./data/nerf_llff_data/fern",
+      basedir = " ./logs")
 
     val manager = NDManager.newBaseManager(config.device)
-    val (trainDataSet, testDataSet, trainDataSize) = getDataSet(config, manager)
+    val (trainDataSet, testDataSet, trainDataSize, renderDataSet) = getDataSet(config, manager)
 
     val block = new nerf(config).getBlock()
     val model = Model.newInstance("nerf")
     model.setBlock(block)
     val sgd = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
-    val trainer = model.newTrainer(new DefaultTrainingConfig(Loss.l2Loss("L2Loss", 1)).optOptimizer(sgd).optDevices(Array(config.device)).addTrainingListeners(TrainingListener.Defaults.logging(): _*))
+    val trainer = model.newTrainer(new DefaultTrainingConfig(Loss.l2Loss("L2Loss", 1)).optOptimizer(sgd).addEvaluator(new Accuracy())
+      .addTrainingListeners(TrainingListener.Defaults.logging(): _*).optDevices(Array(config.device)))
     trainer.initialize(new Shape(1, 3), new Shape(1, 3), new Shape(1, 2), new Shape(1, 3))
     trainer.setMetrics(new Metrics())
 
     EasyTrain.fit(trainer, 1, trainDataSet, testDataSet)
 
-    val modelDir = Paths.get(".\\logs\\nerf")
+    val modelDir = Paths.get("./logs/nerf")
     model.save(modelDir, "nerf")
   }
+
+  def renderToImage(input: NDList): Array[Image] = {
+    //input
+    null
+  }
+
 
   def main(args: Array[String]): Unit = {
     train()

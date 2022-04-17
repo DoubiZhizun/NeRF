@@ -117,7 +117,7 @@ object load_llff {
     }
 
     val sh2 = ImageFactory.getInstance().fromFile(imgFiles(0)).toNDArray(manager).getShape
-    poses.set(new NDIndex(":2,4,:"), manager.create(Array(sh2.get(0), sh2.get(1)), new Shape(2, 1, 1)).toType(poses_arr.getDataType, false).tile(2, poses.getShape.get(2)))
+    poses.set(new NDIndex(":2,4,:"), manager.create(Array(sh2.get(0), sh2.get(1)), new Shape(2, 1, 1)).toType(poses_arr.getDataType, false).broadcast(2, 1, poses.getShape.get(2)))
     poses.set(new NDIndex("2,4,:"), poses.get("2,4,:").div(factor2))
 
     if (!load_imgs) {
@@ -169,8 +169,8 @@ object load_llff {
     val rads2 = rads.concat(manager.create(Array(1)).toType(c2w.getDataType, false))
     val hwf = c2w.get(":,4:5")
     for (theta <- manager.linspace(0, (2 * Math.PI * rots).toFloat, N + 1).get(":-1").toFloatArray) {
-      val c = c2w.get(":3,:4").dot(manager.create(Array(Math.cos(theta), -Math.sin(theta), -Math.sin(theta * zrate), 1)).toType(c2w.getDataType, false).mul(rads2))
-      val z = normalize(c.sub(c2w.get(":3,:4").dot(manager.create(Array(0, 0, -focal, 1)).toType(c2w.getDataType, false))))
+      val c = c2w.get(":3,:4").matMul(manager.create(Array(Math.cos(theta), -Math.sin(theta), -Math.sin(theta * zrate), 1)).toType(c2w.getDataType, false).mul(rads2))
+      val z = normalize(c.sub(c2w.get(":3,:4").matMul(manager.create(Array(0, 0, -focal, 1)).toType(c2w.getDataType, false))))
       render_poses += viewmatrix(z, up, c).concat(hwf, 1)
     }
     render_poses.toArray
@@ -208,7 +208,7 @@ object load_llff {
     val poses_ = poses.add(0)
     val bottom = manager.create(Array(0, 0, 0, 1), new Shape(1, 4)).toType(poses.getDataType, false)
     val c2w = poses_avg(poses).get(":3,:4").concat(bottom, -2)
-    val bottom2 = bottom.reshape(new Shape(1, 1, 4)).tile(0, poses.getShape.get(0))
+    val bottom2 = bottom.reshape(new Shape(1, 1, 4)).broadcast(poses.getShape.get(0), 1, 4)
     val poses2 = poses.get(":,:3,:4").concat(bottom2, -2)
     val poses3 = manager.create(inv(c2w.toDoubleArray)).toType(poses.getDataType, false).matMul(poses2)
     poses_.set(new NDIndex(":,:3,:4"), poses3.get(":,:3,:4"))
@@ -217,7 +217,7 @@ object load_llff {
 
   def spherify_poses(poses: NDArray, bds: NDArray): (NDArray, NDArray, NDArray) = {
     val manager = poses.getManager
-    val p34_to_44 = (p: NDArray) => p.concat(manager.create(Array(0, 0, 0, 1), new Shape(1, 1, 4)).toType(poses.getDataType, false).tile(0, p.getShape.get(0)), 1)
+    val p34_to_44 = (p: NDArray) => p.concat(manager.create(Array(0, 0, 0, 1), new Shape(1, 1, 4)).toType(poses.getDataType, false).broadcast(p.getShape.get(0), 1, 4), 1)
 
     val rays_d = poses.get(":,:3,2:3")
     val rays_o = poses.get(":,:3,3:4")

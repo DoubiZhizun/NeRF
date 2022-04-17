@@ -7,9 +7,10 @@ lazy val root = (project in file("."))
     name := "NeRF"
   )
 
-libraryDependencies += "ai.djl" % "api" % "latest.release"
-libraryDependencies += "ai.djl.mxnet" % "mxnet-engine" % "latest.release" % "runtime"
-libraryDependencies += "ai.djl.mxnet" % "mxnet-native-auto" % "latest.release" % "runtime"
+libraryDependencies += "ai.djl" % "api" % "0.16.0"
+libraryDependencies += "ai.djl.pytorch" % "pytorch-engine" % "0.16.0" % "runtime"
+libraryDependencies += "ai.djl.pytorch" % "pytorch-native-cu111" % "1.8.1" % "runtime"
+libraryDependencies += "ai.djl.pytorch" % "pytorch-jni" % "1.8.1-0.16.0" % "runtime"
 libraryDependencies += "ai.djl" % "model-zoo" % "latest.release"
 libraryDependencies += "ai.djl" % "basicdataset" % "latest.release"
 
