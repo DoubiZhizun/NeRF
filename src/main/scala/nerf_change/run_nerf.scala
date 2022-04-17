@@ -13,7 +13,8 @@ import ai.djl.training.optimizer._
 import ai.djl.training.tracker._
 import dataSetFnc._
 
-import java.nio.file.Paths
+import java.io.{FileOutputStream, OutputStream}
+import java.nio.file.{Files, Paths}
 
 object run_nerf {
 
@@ -49,14 +50,46 @@ object run_nerf {
     trainer.initialize(new Shape(1, 3), new Shape(1, 3), new Shape(1, 2), new Shape(1, 3))
     trainer.setMetrics(new Metrics())
 
-    EasyTrain.fit(trainer, 1, trainDataSet, testDataSet)
+    for (i <- 0 until 1) {
+      EasyTrain.fit(trainer, 1, trainDataSet, testDataSet)
+      val images = renderToImage(renderDataSet, trainer, manager)
+      val paths = Paths.get(config.basedir, s"$i")
+      if (Files.exists(paths)) {
+        Files.delete(paths)
+      }
+      Files.createDirectories(paths)
+      for (j <- images.indices) {
+        images(i).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
+      }
+    }
 
     val modelDir = Paths.get("./logs/nerf")
     model.save(modelDir, "nerf")
   }
 
-  def renderToImage(input: NDList): Array[Image] = {
-    //input
+  def renderToImage(input: NDList, trainer: Trainer, manager: NDManager): Array[Image] = {
+    //input内容为原点，方向和边界，都有四维，分别是图片数，图片宽，图片高和参数
+    val output = new Array[Image](input.get(0).getShape.get(0).toInt)
+    for (i <- 0 until input.get(0).getShape.get(0).toInt) {
+      val imageManager = manager.newSubManager()
+      val imageList = new NDList(input.get(0).getShape.get(1).toInt)
+      for (j <- 0 until input.get(0).getShape.get(1).toInt) {
+        val subManager = manager.newSubManager()
+        val rays_o = input.get(0).get(i, j)
+        val rays_d = input.get(1).get(i, j)
+        val bounds = input.get(2).get(i, j)
+        rays_o.attach(subManager)
+        rays_d.attach(subManager)
+        bounds.attach(subManager)
+        val outputImage = trainer.evaluate(new NDList(rays_o, rays_d, bounds, rays_d)).get(0).get("...,3:")
+        outputImage.attach(imageManager)
+        imageList.add(outputImage)
+        subManager.close()
+      }
+      val image = NDArrays.stack(imageList, 0)
+      output(i) = ImageFactory.getInstance().fromNDArray(image)
+      imageManager.close()
+    }
     null
   }
 
