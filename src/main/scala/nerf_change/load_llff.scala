@@ -110,7 +110,7 @@ object load_llff {
       return (null, null, null)
     }
 
-    val imgFiles = for (f <- Files.list(imgdir).toArray(new int2ArrayPath) if f.toString.endsWith("JPG") || f.toString.endsWith("jpg") || f.toString.endsWith("png")) yield f
+    val imgFiles = (for (f <- Files.list(imgdir).toArray(new int2ArrayPath) if f.toString.endsWith("JPG") || f.toString.endsWith("jpg") || f.toString.endsWith("png")) yield f).sortWith((x, y) => x.compareTo(y) < 0)
     if (poses.getShape.getShape.last != imgFiles.length) {
       print(s"Mismatch between imgs ${imgFiles.length} and poses ${poses.getShape.getShape.last} !!!!\n")
       return (null, null, null)

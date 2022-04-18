@@ -23,7 +23,7 @@ object run_nerf {
     val config = nerfConfig(
       coarseBlock = coreBlockGenerator.getBlock(),
       fineBlock = coreBlockGenerator.getBlock(),
-      device = Device.gpu(1),
+      device = Device.gpu(),
       pos_L = 10,
       direction_L = 4,
       raw_noise_std = 1e0,
@@ -51,14 +51,11 @@ object run_nerf {
     trainer.initialize(new Shape(1, 3), new Shape(1, 3), new Shape(1, 2), new Shape(1, 3))
     trainer.setMetrics(new Metrics())
 
-    for (i <- 0 until Math.ceil(150000f * config.N_rand / trainDataSize / 10).toInt) {
+    for (i <- 0 until Math.ceil(200000f * config.N_rand / trainDataSize / 10).toInt) {
       printf(s"$i times train start.\n")
       EasyTrain.fit(trainer, 10, trainDataSet, testDataSet)
       val images = renderToImage(renderDataSet, trainer, manager)
       val paths = Paths.get(config.basedir, s"$i")
-      if (Files.exists(paths)) {
-        Files.delete(paths)
-      }
       Files.createDirectories(paths)
       for (j <- images.indices) {
         images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")

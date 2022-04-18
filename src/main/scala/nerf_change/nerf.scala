@@ -125,6 +125,7 @@ class nerf(config: nerfConfig) {
     //观察方向是二维
     val rays_o = input.get(0).expandDims(1)
     val rays_d = input.get(1).expandDims(1)
+    //TODO: add ndc here
     val bound = input.get(2)
     val near = bound.get(to1NoTail)
     val far = bound.get(from1NoTail)
@@ -159,6 +160,7 @@ class nerf(config: nerfConfig) {
     val rays_d = input.get(5)
 
     val samples = manager.create(samplePdf(cdf.toType(DataType.FLOAT32, false).toFloatArray, z_vals.toType(DataType.FLOAT32, false).toFloatArray, cdf.getShape.get(0).toInt, config.N_samples, config.N_importance)).reshape(cdf.getShape.get(0), config.N_samples + config.N_importance, 1)
+
     new NDList(rays_o.add(rays_d.mul(samples)), viewdirs, samples)
     //这个函数后续需要更多修改
   }
