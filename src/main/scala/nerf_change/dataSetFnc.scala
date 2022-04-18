@@ -62,7 +62,7 @@ object dataSetFnc {
     val testSet = //new ArrayDataset.Builder().setData(rays_o_test, rays_d_test, bounds_test, rays_d_test).optLabels(testImages).setSampling(config.N_rand, true).build()
       new nerfDataSet(rays_o_test, rays_d_test, bounds_test, rays_d_test, testImages, config.N_rand)
 
-    val (render_d_temp, render_o) = get_rays_np(hwf(0).toInt, hwf(1).toInt, hwf(2), render_poses)
+    val (render_d_temp, render_o) = get_rays_np(hwf(0).toInt, hwf(1).toInt, hwf(2), render_poses.get("...,:4"))
     val render_d_norm = render_d_temp.norm(Array(-1), true)
     val render_bounds = subManager.zeros(render_d_norm.getShape).concat(render_d_norm, -1)
     val render_d = render_d_temp.div(render_d_norm)
