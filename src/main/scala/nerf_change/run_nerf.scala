@@ -35,6 +35,7 @@ object run_nerf {
       N_rand = 1024,
       lrate = 5e-4,
       lrate_decay = 250,
+      ndc = true,
       datadir = "./data/nerf_llff_data/fern",
       basedir = "./logs")
 

@@ -125,7 +125,6 @@ class nerf(config: nerfConfig) {
     //观察方向是二维
     val rays_o = input.get(0).expandDims(1)
     val rays_d = input.get(1).expandDims(1)
-    //TODO: add ndc here
     val bound = input.get(2)
     val near = bound.get(to1NoTail)
     val far = bound.get(from1NoTail)

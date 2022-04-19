@@ -13,7 +13,22 @@ object dataSetFnc {
     val j = manager.arange(0, H, 1, DataType.FLOAT32).reshape(H, 1).repeat(1, W)
     val dirs = NDArrays.stack(new NDList(i.sub(W * .5).div(focal), j.sub(H * .5).div(focal).neg(), manager.ones(i.getShape).neg()), -1)
     val rays_d = dirs.expandDims(-2).expandDims(-2).mul(c2w.get(":,:,:3")).sum(Array(-1))
-    (rays_d.transpose(2, 0, 1, 3), c2w.get(":,:,-1").broadcast(rays_d.getShape).transpose(2, 0, 1, 3))
+    ndc_rays(H, W, focal, 1, rays_d.transpose(2, 0, 1, 3), c2w.get(":,:,-1").broadcast(rays_d.getShape).transpose(2, 0, 1, 3))
+  }
+
+  def ndc_rays(H: Int, W: Int, focal: Double, near: Double, rays_d: NDArray, rays_o: NDArray): (NDArray, NDArray) = {
+    val t = rays_o.get("...,2:3").add(near).neg().div(rays_d.get("...,2:3"))
+    val rays_o2 = rays_o.add(t.mul(rays_d))
+
+    val o0 = rays_o2.get("...,0").div(rays_o2.get("...,2")).mul(-1 / (W / (2 * focal)))
+    val o1 = rays_o2.get("...,1").div(rays_o2.get("...,2")).mul(-1 / (W / (2 * focal)))
+    val o2 = NDArrays.div(1 + 2 * near, rays_o2.get("...,2"))
+
+    val d0 = rays_d.get("...,0").div(rays_d.get("...,2")).sub(rays_o2.get("...,0").div(rays_o2.get("...,2"))).mul(-1 / (W / (2 * focal)))
+    val d1 = rays_d.get("...,1").div(rays_d.get("...,2")).sub(rays_o2.get("...,1").div(rays_o2.get("...,2"))).mul(-1 / (W / (2 * focal)))
+    val d2 = NDArrays.div(-2 * near, rays_o2.get("...,2"))
+
+    (d0.getNDArrayInternal.stack(new NDList(d1, d2), -1), o0.getNDArrayInternal.stack(new NDList(o1, o2), -1))
   }
 
   def getDataSet(config: nerfConfig, manager: NDManager): (Dataset, Dataset, Int, NDList) = {

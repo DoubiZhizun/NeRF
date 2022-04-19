@@ -38,6 +38,8 @@ case class nerfConfig(
                        lrate: Double,
                        lrate_decay: Int,
                        /*学习率与学习率衰减*/
+                       ndc: Boolean,
+                       /*是否使用ndc变换*/
                        datadir: String,
                        basedir: String
                        /*数据文件夹*/
