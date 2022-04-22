@@ -63,7 +63,7 @@ class nerf(config: nerfConfig) {
   else (input: NDArray) => input
 
   val addBkgd = if (config.white_bkgd) (rgb: NDArray, weight: NDArray) => {
-    rgb.add(NDArrays.sub(1, weight.sum(Array(1))))
+    rgb.add(weight.sum(Array(1)).sub(1).neg())
     //对于这个函数的理解：
     //假设渲染出的所有点的颜色都是白色，计算最终渲染出的颜色，
     //然后用纯白色去减这个颜色，就能得到背景所需的颜色

@@ -21,9 +21,9 @@ object run_nerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      coarseBlock = coreBlockGenerator.getBlock(),
-      fineBlock = coreBlockGenerator.getBlock(),
-      device = Device.gpu(),
+      coarseBlock = coreBlockGenerator.getBlock(D = 8, W = 256, skips = new Array[Int](0)),
+      fineBlock = coreBlockGenerator.getBlock(D = 8, W = 256, skips = new Array[Int](0)),
+      device = Device.gpu(2),
       pos_L = 10,
       direction_L = 4,
       raw_noise_std = 1e0,
@@ -43,7 +43,7 @@ object run_nerf {
     val (trainDataSet, testDataSet, trainDataSize, renderDataSet) = getDataSet(config, manager)
 
     val block = new nerf(config).getBlock()
-    val model = Model.newInstance("nerf")
+    val model = Model.newInstance("nerf", config.device)
     model.setBlock(block)
     //model.load(Paths.get("./logs/nerf"), "nerf")
     val sgd = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
