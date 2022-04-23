@@ -20,10 +20,12 @@ import java.lang.reflect.Parameter
 
 object test {
   def main(args: Array[String]): Unit = {
-    val manager = NDManager.newBaseManager(Device.gpu())
-    print(ai.djl.util.cuda.CudaUtils.getCudaVersionString)
-    //    val array = manager.arange(4).reshape(2, 2, 1)
-    //    val array2 = manager.create(Array(1, 2)).reshape(2, 1)
+    val manager = NDManager.newBaseManager()
+    val array = manager.arange(64).reshape(8, 8)
+    val array2 = manager.arange(8).repeat(1, 4)
+    print(array)
+    print(array2)
+    print(array.get(new NDIndex().addPickDim(array2).addAllDim()))
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
     //    val c = Engine.getInstance().newGradientCollector()
