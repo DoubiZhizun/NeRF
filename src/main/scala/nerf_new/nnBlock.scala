@@ -6,10 +6,6 @@ abstract class nnBlock {
 
   //神经网络模块抽象类
 
-  def setRequireGradient(input: Boolean): Unit
-
-  def forward(input: NDArray): (NDArray, NDArray, NDArray)
-
-  def updateParameters(lr: Double): Unit
+  def forward(input: NDArray, training: Boolean): (NDArray, NDArray, NDArray)
 
 }

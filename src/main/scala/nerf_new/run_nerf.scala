@@ -1,6 +1,7 @@
 package nerf_new
 
 import ai.djl._
+import ai.djl.engine.Engine
 import ai.djl.metric._
 import ai.djl.modality.cv._
 import ai.djl.ndarray._
@@ -37,32 +38,47 @@ object run_nerf {
       basedir = "./logs")
 
     val manager = NDManager.newBaseManager(config.device)
-    config.coarseBlock = new cfBlock(config, manager)
-    config.fineBlock = new cfBlock(config, manager)
+    val adam = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
+    val ps = new ParameterStore(manager, false)
+    ps.setParameterServer(Engine.getInstance().newParameterServer(adam), Array(config.device))
+    config.coarseBlock = new cfBlock(config, manager, ps)
+    config.fineBlock = new cfBlock(config, manager, ps)
 
-    val model = new nerf(config)
+    val model = new nerf(config, ps)
 
     val (dataSet, trainDataSize, renderDataSet) = getDataSet(config, manager)
 
-    for (i <- 0 until Math.ceil(200000f * config.N_rand / trainDataSize / 10).toInt) {
-      printf(s"${i + 1} times train start.\n")
-//      val iterator = dataSet.getData(manager).iterator()
-//      var idx = 0
-//      while (iterator.hasNext) {
-//        val next = iterator.next()
-//        idx += 1
-//        print(s"${idx} times train: ")
-//        model.train(next.getData.get(0), next.getData.get(1), next.getData.get(2), next.getData.get(3), next.getData.get(4), next.getLabels.get(0))
-//        next.close()
-//      }
-
-      val images = renderToImage(renderDataSet, model, manager)
-      val paths = Paths.get(config.basedir, s"$i")
-      Files.createDirectories(paths)
-      for (j <- images.indices) {
-        images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
+    var idx = 0
+    for (_ <- 0 until Math.ceil(200000f * config.N_rand / trainDataSize).toInt) {
+      val iterator = dataSet.getData(manager).iterator()
+      while (iterator.hasNext) {
+        val next = iterator.next()
+        val loss = model.train(next.getData.get(0), next.getData.get(1), next.getData.get(2), next.getData.get(3), next.getData.get(4), next.getLabels.get(0))
+        next.close()
+        idx += 1
+        if (idx % 1000 == 0) {
+          print(s"${idx} iterators train: loss is ${loss}.\n")
+        }
+        if (idx % 50000 == 0) {
+          print("Start to render.\n")
+          val images = renderToImage(renderDataSet, model, manager)
+          val paths = Paths.get(config.basedir, s"${idx / 50000}")
+          Files.createDirectories(paths)
+          for (j <- images.indices) {
+            images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
+          }
+          print("Render over.\n")
+        }
       }
     }
+    print("Start to render.\n")
+    val images = renderToImage(renderDataSet, model, manager)
+    val paths = Paths.get(config.basedir, "final")
+    Files.createDirectories(paths)
+    for (j <- images.indices) {
+      images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
+    }
+    print("Render over.\n")
   }
 
   def renderToImage(input: NDList, model: nerf, manager: NDManager): Array[Image] = {

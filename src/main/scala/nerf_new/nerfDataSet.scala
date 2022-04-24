@@ -54,7 +54,7 @@ final class nerfDataSet(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: ND
 
   override def next(): Batch = {
     val subManager = manager.newSubManager()
-    val data = new NDList(4)
+    val data = new NDList(5)
     val label = new NDList(1)
     val index = if (now + batchNum > size) new NDIndex().addSliceDim(now, size) else new NDIndex().addSliceDim(now, now + batchNum)
     for (i <- 0 until 5) {

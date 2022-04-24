@@ -2,58 +2,48 @@ package nerf_new
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._
-import ai.djl.ndarray.types.DataType
+import ai.djl.ndarray.types._
 import ai.djl.nn._
 
 import java.util.function._
 import scala.collection.JavaConverters._
 import ArrayFnc._
 import ai.djl.engine._
+import ai.djl.training._
 import ai.djl.training.loss._
 import ai.djl.training.optimizer._
 import ai.djl.training.tracker._
 
-class nerf(config: nerfConfig) {
+class nerf(config: nerfConfig, ps: ParameterStore) {
 
   val loss = Loss.l2Loss("L2Loss", 1)
-  val beta1 = 0.9
-  val beta2 = 0.999
-  val epsilon = 1e-7
-  var updateCount = 1
 
   def predict(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): NDArray = {
-    val (_, fineRgbOut) = forward(rays_o, rays_d, near, far, viewdir)
+    val (_, fineRgbOut) = forward(rays_o, rays_d, near, far, viewdir, false)
     fineRgbOut
   }
 
-  def train(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, image: NDArray): Unit = {
-    //image：测试集，尺寸(batchNum,3)
-    config.coarseBlock.setRequireGradient(true)
-    config.fineBlock.setRequireGradient(true)
+  def train(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, label: NDArray): Float = {
+    //label：尺寸(batchNum,3)
     val collector = Engine.getInstance().newGradientCollector()
-    val (coarseRgbOut, fineRgbOut) = forward(rays_o, rays_d, near, far, viewdir)
-    val lossValue = loss.evaluate(new NDList(image), new NDList(coarseRgbOut)).add(loss.evaluate(new NDList(image), new NDList(fineRgbOut)))
+    val (coarseRgbOut, fineRgbOut) = forward(rays_o, rays_d, near, far, viewdir, true)
+    val lossValue = loss.evaluate(new NDList(label), new NDList(coarseRgbOut)).add(loss.evaluate(new NDList(label), new NDList(fineRgbOut)))
     collector.backward(lossValue)
     collector.close()
-    val coef1 = 1.0 - Math.pow(beta1, updateCount)
-    val coef2 = 1.0 - Math.pow(beta2, updateCount)
-    val lr = config.lrate * Math.pow(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)), updateCount)
-    val newLr = lr * Math.sqrt(coef2) / coef1 / rays_o.getShape.get(0)
-    config.coarseBlock.updateParameters(newLr)
-    config.fineBlock.updateParameters(newLr)
-    print(s"loss is:${lossValue.getFloat()}\n")
+    ps.updateAllParameters()
+    lossValue.getFloat()
   }
 
-  def forward(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): (NDArray, NDArray) = {
+  def forward(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
     //输入在getInput中有详细介绍
     //viewdir：尺寸(batchNum,1,1,3)
     val (coarsePos, coarseZ_vals) = getInput(rays_o, rays_d, near, far)
     val sh = SH2(viewdir)
-    val (coarse1, coarse2, coarseD) = config.coarseBlock.forward(positionCode(coarsePos, config.pos_L))
+    val (coarse1, coarse2, coarseD) = config.coarseBlock.forward(positionCode(coarsePos, config.pos_L), training)
     val coarseRgb = coarse2.mul(sh).sum(Array(3)).add(coarse1)
     val (coarseRgbOut, coarseWeight) = render_ray(coarseRgb, coarseD, coarseZ_vals)
     val (finePos, fineZ_vals) = sample_pdf(coarseWeight, coarseZ_vals, rays_o, rays_d)
-    val (fine1, fine2, fineD) = config.fineBlock.forward(positionCode(finePos, config.pos_L))
+    val (fine1, fine2, fineD) = config.fineBlock.forward(positionCode(finePos, config.pos_L), training)
     val fineRgb = fine2.mul(sh).sum(Array(3)).add(fine1)
     val (fineRgbOut, _) = render_ray(fineRgb, fineD, fineZ_vals)
     (coarseRgbOut, fineRgbOut)
@@ -97,7 +87,7 @@ class nerf(config: nerfConfig) {
     //d：尺寸(batchNum,N_samples(+N_importance),1)
     //z_vals：尺寸(batchNum,N_samples(+N_importance),1)
     val dist = z_vals.get(from1).sub(z_vals.get(toNeg1))
-    //d归一化过，dist此时已经是真实世界的距离
+    //rays_d归一化过，dist此时已经是真实世界的距离
     var alpha = addNoise(d).getNDArrayInternal.relu().neg().mul(dist)
     val T = alpha.cumSum(1).exp()
     //最前面是1
