@@ -16,6 +16,10 @@ import ai.djl.training.tracker._
 
 class nerf(config: nerfConfig, ps: ParameterStore) {
 
+  //目前已加入的改进：
+  //1、使用球谐函数描述观察视角对颜色的影响
+  //2、位置编码
+
   val loss = Loss.l2Loss("L2Loss", 1)
 
   def predict(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): NDArray = {
@@ -52,18 +56,39 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     //fineRgbOut：细腻网络渲染结果，尺寸(batchNum,3)
   }
 
+  val xyIndex = new NDIndex("...,:2")
+  val yzIndex = new NDIndex("...,1:")
+  val zIndex = new NDIndex("...,2:")
+  val xIndex = new NDIndex("...,:1")
+
   def positionCode(input: NDArray, L: Int): NDArray = {
     //sin cos位置编码
     //input的最高维度是归一化过的
-    val output = new NDList(L * 2)
-    var factor = Math.PI
-    for (_ <- 0 until L) {
-      val inputMulFactor = input.mul(factor)
-      output.add(inputMulFactor.sin())
-      output.add(inputMulFactor.cos())
-      factor *= 2
-    }
+    //    val output = new NDList(L * 2)
+    //    var factor = Math.PI
+    //    for (_ <- 0 until L) {
+    //      val inputMulFactor = input.mul(factor)
+    //      output.add(inputMulFactor.sin())
+    //      output.add(inputMulFactor.cos())
+    //      factor *= 2
+    //    }
+    val output = new NDList(11)
+    val xy = input.get(xyIndex)
+    val yz = input.get(yzIndex)
+    val zx = input.get(zIndex).concat(input.get(xIndex))
+    output.add(input.norm(Array(-1), true)) //长度
+    output.add(xy.norm(Array(-1), true))//xy长度
+    output.add(yz.norm(Array(-1), true))//yz长度
+    output.add(zx.norm(Array(-1), true))//zx长度
+    output.add(input.div(output.get(0)))//cos a, cos b, cos y
+    output.add(output.get(1).div(output.get(0)))//sin a
+    output.add(output.get(2).div(output.get(0)))//sin b
+    output.add(output.get(3).div(output.get(0)))//sin y
+    output.add(xy.div(output.get(1)))//cos phi, sin phi
+    output.add(yz.div(output.get(2)))//cos phi2, sin phi2
+    output.add(zx.div(output.get(3)))//cos phi3, sin phi3
     input.getNDArrayInternal.concat(output, -1)
+    //共19个参数
   }
 
   val addNoise = if (config.raw_noise_std > 0) (input: NDArray) => input.add(input.getManager.randomNormal(input.getShape).mul(config.raw_noise_std))

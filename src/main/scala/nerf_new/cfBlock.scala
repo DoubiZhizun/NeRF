@@ -10,7 +10,7 @@ import ai.djl.training.initializer._
 
 class cfBlock(config: nerfConfig, manager: NDManager, ps: ParameterStore) extends nnBlock {
 
-  val inputSize = config.pos_L * 6 + 3
+  val inputSize = 19
 
   val parameters = new Array[Parameter](26)
 

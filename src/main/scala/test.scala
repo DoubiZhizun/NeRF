@@ -8,7 +8,6 @@ import ai.djl.nn.core.Linear
 import nerf_origin.load_llff._
 
 import scala.util.Random._
-import com.sun.org.apache.xalan.internal.xsltc.cmdline.getopt.GetOpt
 import nerf_origin._
 import nerf_origin.run_nerf_helpers._
 import ai.djl.nn.transformer.BertMaskedLanguageModelBlock._
@@ -21,11 +20,15 @@ import java.lang.reflect.Parameter
 object test {
   def main(args: Array[String]): Unit = {
     val manager = NDManager.newBaseManager()
-    val array = manager.arange(64).reshape(8, 8)
-    val array2 = manager.arange(8).repeat(1, 4)
-    print(array)
-    print(array2)
-    print(array.get(new NDIndex().addPickDim(array2).addAllDim()))
+    val array = manager.ones(new Shape(10)).toType(DataType.FLOAT32, false)
+    array.setRequiresGradient(true)
+    val collector = Engine.getInstance().newGradientCollector()
+    val array2 = array.mul(10)
+    val array3 = array2.mul(10)
+    collector.backward(array3)
+    collector.close()
+    print(array.getGradient)
+    print(array2.getGradient)
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
     //    val c = Engine.getInstance().newGradientCollector()
