@@ -10,9 +10,9 @@ import ai.djl.training.initializer._
 
 class cfBlock(config: nerfConfig, manager: NDManager, ps: ParameterStore) extends nnBlock {
 
-  val inputSize = 19
+  val inputSize = 3 + config.pos_L * 6
 
-  val parameters = new Array[Parameter](26)
+  val parameters = new Array[Parameter](27)
 
   parameters(0) = Parameter.builder().setType(Parameter.Type.WEIGHT).optShape(new Shape(256, inputSize)).build()
   parameters(1) = Parameter.builder().setType(Parameter.Type.BIAS).optShape(new Shape(256)).build()
@@ -40,22 +40,32 @@ class cfBlock(config: nerfConfig, manager: NDManager, ps: ParameterStore) extend
   parameters(23) = Parameter.builder().setType(Parameter.Type.BIAS).optShape(new Shape(8)).build()
   parameters(24) = Parameter.builder().setType(Parameter.Type.WEIGHT).optShape(new Shape(8, 256)).build()
   parameters(25) = Parameter.builder().setType(Parameter.Type.BIAS).optShape(new Shape(8)).build()
+  parameters(26) = Parameter.builder().setType(Parameter.Type.WEIGHT).optShape(new Shape(256, inputSize)).build()
 
   for (p <- parameters) {
     p.initialize(manager, DataType.FLOAT32)
   }
 
-  def activate(input: NDArray): NDArray = input.sin()
+  def activate(input: NDArray): NDArray = input.getNDArrayInternal.relu()
 
   override def forward(input: NDArray, training: Boolean): (NDArray, NDArray, NDArray) = {
     var temp = input
-    for (i <- 0 until 8) {
+    for (i <- 0 until 4) {
       val weight = ps.getValue(parameters(2 * i), config.device, training)
       val bias = ps.getValue(parameters(2 * i + 1), config.device, training)
       temp = activate(temp.getNDArrayInternal.linear(temp, weight, bias).get(0))
     }
-    var weight = ps.getValue(parameters(16), config.device, training)
-    var bias = ps.getValue(parameters(17), config.device, training)
+    var weight = ps.getValue(parameters(8), config.device, training)
+    var bias = ps.getValue(parameters(9), config.device, training)
+    val weight2 = ps.getValue(parameters(26), config.device, training)
+    temp = activate(temp.getNDArrayInternal.linear(temp, weight, bias).get(0).add(input.getNDArrayInternal.linear(input, weight2, null).get(0)))
+    for (i <- 5 until 8) {
+      val weight = ps.getValue(parameters(2 * i), config.device, training)
+      val bias = ps.getValue(parameters(2 * i + 1), config.device, training)
+      temp = activate(temp.getNDArrayInternal.linear(temp, weight, bias).get(0))
+    }
+    weight = ps.getValue(parameters(16), config.device, training)
+    bias = ps.getValue(parameters(17), config.device, training)
     val d = temp.getNDArrayInternal.linear(temp.get(":,:-1,:"), weight, bias).get(0)
     weight = ps.getValue(parameters(18), config.device, training)
     bias = ps.getValue(parameters(19), config.device, training)

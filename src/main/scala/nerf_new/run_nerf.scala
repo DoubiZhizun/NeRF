@@ -22,7 +22,7 @@ object run_nerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      device = Device.gpu(),
+      device = Device.gpu(1),
       pos_L = 10,
       raw_noise_std = 1e0,
       white_bkgd = false,
@@ -48,6 +48,7 @@ object run_nerf {
 
     val (dataSet, trainDataSize, renderDataSet) = getDataSet(config, manager)
 
+    print("Start to train.\n")
     var idx = 0
     for (_ <- 0 until Math.ceil(200000f * config.N_rand / trainDataSize).toInt) {
       val iterator = dataSet.getData(manager).iterator()
@@ -61,23 +62,28 @@ object run_nerf {
         }
         if (idx % 50000 == 0) {
           print("Start to render.\n")
+          model.perturb(false)
           val images = renderToImage(renderDataSet, model, manager)
           val paths = Paths.get(config.basedir, s"${idx / 50000}")
           Files.createDirectories(paths)
           for (j <- images.indices) {
             images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
           }
+          model.perturb(true)
           print("Render over.\n")
         }
       }
     }
-    print("Start to render.\n")
+    print("Train over.\n")
+    print("Start to final render.\n")
+    model.perturb(false)
     val images = renderToImage(renderDataSet, model, manager)
     val paths = Paths.get(config.basedir, "final")
     Files.createDirectories(paths)
     for (j <- images.indices) {
       images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
     }
+    model.perturb(true)
     print("Render over.\n")
   }
 

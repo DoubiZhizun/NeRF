@@ -18,7 +18,7 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
 
   //目前已加入的改进：
   //1、使用球谐函数描述观察视角对颜色的影响
-  //2、位置编码
+  //2、
 
   val loss = Loss.l2Loss("L2Loss", 1)
 
@@ -31,14 +31,17 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     //label：尺寸(batchNum,3)
     val collector = Engine.getInstance().newGradientCollector()
     val (coarseRgbOut, fineRgbOut) = forward(rays_o, rays_d, near, far, viewdir, true)
-    val lossValue = loss.evaluate(new NDList(label), new NDList(coarseRgbOut)).add(loss.evaluate(new NDList(label), new NDList(fineRgbOut)))
+    val lossValue = lossCalculate(coarseRgbOut, fineRgbOut, label)
     collector.backward(lossValue)
     collector.close()
     ps.updateAllParameters()
     lossValue.getFloat()
   }
 
-  def forward(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
+  val forward = if (config.coarseBlock == null) forwardNoCoarse _ else forwardWithCoarse _
+  val lossCalculate = if (config.coarseBlock == null) (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(fine)) else (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(coarse)).add(loss.evaluate(new NDList(label), new NDList(fine)))
+
+  def forwardWithCoarse(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
     //输入在getInput中有详细介绍
     //viewdir：尺寸(batchNum,1,1,3)
     val (coarsePos, coarseZ_vals) = getInput(rays_o, rays_d, near, far)
@@ -56,39 +59,28 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     //fineRgbOut：细腻网络渲染结果，尺寸(batchNum,3)
   }
 
-  val xyIndex = new NDIndex("...,:2")
-  val yzIndex = new NDIndex("...,1:")
-  val zIndex = new NDIndex("...,2:")
-  val xIndex = new NDIndex("...,:1")
+  def forwardNoCoarse(rays_o: NDArray, rays_d: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
+    val (finePos, fineZ_vals) = getInput(rays_o, rays_d, near, far)
+    val sh = SH2(viewdir)
+    val (fine1, fine2, fineD) = config.fineBlock.forward(positionCode(finePos, config.pos_L), training)
+    val fineRgb = fine2.mul(sh).sum(Array(3)).add(fine1)
+    val (fineRgbOut, _) = render_ray(fineRgb, fineD, fineZ_vals)
+    (null, fineRgbOut)
+    //no coarse
+  }
 
   def positionCode(input: NDArray, L: Int): NDArray = {
     //sin cos位置编码
     //input的最高维度是归一化过的
-    //    val output = new NDList(L * 2)
-    //    var factor = Math.PI
-    //    for (_ <- 0 until L) {
-    //      val inputMulFactor = input.mul(factor)
-    //      output.add(inputMulFactor.sin())
-    //      output.add(inputMulFactor.cos())
-    //      factor *= 2
-    //    }
-    val output = new NDList(11)
-    val xy = input.get(xyIndex)
-    val yz = input.get(yzIndex)
-    val zx = input.get(zIndex).concat(input.get(xIndex))
-    output.add(input.norm(Array(-1), true)) //长度
-    output.add(xy.norm(Array(-1), true))//xy长度
-    output.add(yz.norm(Array(-1), true))//yz长度
-    output.add(zx.norm(Array(-1), true))//zx长度
-    output.add(input.div(output.get(0)))//cos a, cos b, cos y
-    output.add(output.get(1).div(output.get(0)))//sin a
-    output.add(output.get(2).div(output.get(0)))//sin b
-    output.add(output.get(3).div(output.get(0)))//sin y
-    output.add(xy.div(output.get(1)))//cos phi, sin phi
-    output.add(yz.div(output.get(2)))//cos phi2, sin phi2
-    output.add(zx.div(output.get(3)))//cos phi3, sin phi3
+    val output = new NDList(L * 2)
+    var factor = Math.PI
+    for (_ <- 0 until L) {
+      val inputMulFactor = input.mul(factor)
+      output.add(inputMulFactor.sin())
+      output.add(inputMulFactor.cos())
+      factor *= 2
+    }
     input.getNDArrayInternal.concat(output, -1)
-    //共19个参数
   }
 
   val addNoise = if (config.raw_noise_std > 0) (input: NDArray) => input.add(input.getManager.randomNormal(input.getShape).mul(config.raw_noise_std))
@@ -128,7 +120,7 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
   val getSample = if (config.lindisp) (t_vals: NDArray, near: NDArray, far: NDArray) => NDArrays.div(1, NDArrays.div(1, near).mul(NDArrays.sub(1, t_vals)).add(NDArrays.div(1, far).mul(t_vals)))
   else (t_vals: NDArray, near: NDArray, far: NDArray) => near.mul(t_vals.sub(1).neg()).add(far.mul(t_vals))
 
-  val givePerterb = if (config.perterb) (z_vals: NDArray) => {
+  var givePerterb = if (config.perterb) (z_vals: NDArray) => {
     val manager = z_vals.getManager
     val mids = z_vals.get(from1).add(z_vals.get(toNeg1)).mul(.5)
     val upper = mids.concat(z_vals.get(fromNeg1), 1)
@@ -136,6 +128,17 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     val t_rand = manager.randomUniform(0, 1, z_vals.getShape)
     lower.add(upper.sub(lower).mul(t_rand))
   } else (z_vals: NDArray) => z_vals
+
+  def perturb(input: Boolean): Unit = {
+    givePerterb = if (input && config.perterb) (z_vals: NDArray) => {
+      val manager = z_vals.getManager
+      val mids = z_vals.get(from1).add(z_vals.get(toNeg1)).mul(.5)
+      val upper = mids.concat(z_vals.get(fromNeg1), 1)
+      val lower = z_vals.get(to1).concat(mids, 1)
+      val t_rand = manager.randomUniform(0, 1, z_vals.getShape)
+      lower.add(upper.sub(lower).mul(t_rand))
+    } else (z_vals: NDArray) => z_vals
+  }
 
   //二阶球谐函数
   def SH2(viewdir: NDArray): NDArray = {
