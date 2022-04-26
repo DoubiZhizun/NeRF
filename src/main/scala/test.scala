@@ -1,5 +1,7 @@
 import ai.djl.Device
 import ai.djl.engine.Engine
+import ai.djl.modality.cv.Image
+import ai.djl.modality.cv.util.NDImageUtils
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.ndarray.types.{DataType, Shape}
@@ -20,15 +22,13 @@ import java.lang.reflect.Parameter
 object test {
   def main(args: Array[String]): Unit = {
     val manager = NDManager.newBaseManager()
-    val array = manager.ones(new Shape(10)).toType(DataType.FLOAT32, false)
+    val array = manager.arange(100f).reshape(new Shape(10, 10, 1))
     array.setRequiresGradient(true)
     val collector = Engine.getInstance().newGradientCollector()
-    val array2 = array.mul(10)
-    val array3 = array2.mul(10)
-    collector.backward(array3)
+    val array2 = NDImageUtils.resize(array, 18, 18, Image.Interpolation.NEAREST)
+    collector.backward(array2)
     collector.close()
     print(array.getGradient)
-    print(array2.getGradient)
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
     //    val c = Engine.getInstance().newGradientCollector()
