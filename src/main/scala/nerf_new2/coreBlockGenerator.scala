@@ -68,7 +68,7 @@ object coreBlockGenerator {
     }), Conv2d.builder().setFilters(3).setKernelShape(new Shape(3, 3)).optPadding(new Shape(1, 1)).build()).asJava))
     for (i <- 0 until factor) {
       block.add(new LambdaBlock(new Function[NDList, NDList] {
-        override def apply(input: NDList): NDList = new NDList(NDImageUtils.resize(input.get(0).transpose(Array(1,2,3,0):_*), input.get(0).getShape.get(2).toInt * 2, input.get(0).getShape.get(3).toInt * 2, Image.Interpolation.NEAREST).transpose(Array(3,0,1,2):_*), NDImageUtils.resize(input.get(1).transpose(Array(1,2,3,0):_*), input.get(1).getShape.get(2).toInt * 2, input.get(1).getShape.get(3).toInt * 2, Image.Interpolation.BILINEAR).transpose(Array(3,0,1,2):_*))
+        override def apply(input: NDList): NDList = new NDList(input.get(0).repeat(Array(1l, 1,2, 2)), input.get(1).repeat(Array(1l,1, 2, 2)))
       })).add(new ParallelBlock(new Function[java.util.List[NDList], NDList] {
         override def apply(input: java.util.List[NDList]): NDList = new NDList(input.get(0).get(0), input.get(0).get(1).add(input.get(1).get(1)))
       }, List[Block](new SequentialBlock().add(new Function[NDList, NDList] {

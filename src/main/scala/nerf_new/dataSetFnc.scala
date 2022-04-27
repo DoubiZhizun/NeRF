@@ -21,11 +21,11 @@ object dataSetFnc {
     val rays_o2 = rays_o.add(t.mul(rays_d))
 
     val o0 = rays_o2.get("...,0").div(rays_o2.get("...,2")).mul(-1 / (W / (2 * focal)))
-    val o1 = rays_o2.get("...,1").div(rays_o2.get("...,2")).mul(-1 / (W / (2 * focal)))
+    val o1 = rays_o2.get("...,1").div(rays_o2.get("...,2")).mul(-1 / (H / (2 * focal)))
     val o2 = NDArrays.div(2 * near, rays_o2.get("...,2")).add(1)
 
     val d0 = rays_d.get("...,0").div(rays_d.get("...,2")).sub(rays_o2.get("...,0").div(rays_o2.get("...,2"))).mul(-1 / (W / (2 * focal)))
-    val d1 = rays_d.get("...,1").div(rays_d.get("...,2")).sub(rays_o2.get("...,1").div(rays_o2.get("...,2"))).mul(-1 / (W / (2 * focal)))
+    val d1 = rays_d.get("...,1").div(rays_d.get("...,2")).sub(rays_o2.get("...,1").div(rays_o2.get("...,2"))).mul(-1 / (H / (2 * focal)))
     val d2 = NDArrays.div(-2 * near, rays_o2.get("...,2"))
 
     (d0.getNDArrayInternal.stack(new NDList(d1, d2), -1), o0.getNDArrayInternal.stack(new NDList(o1, o2), -1))

@@ -17,8 +17,6 @@ case class nerfConfig(
                        /*每条光线采样点数*/
                        perterb: Boolean,
                        /*若为true，给采样加随机位移*/
-                       N_rand: Int,
-                       /*batchNum*/
                        lrate: Double,
                        lrate_decay: Int,
                        /*学习率与学习率衰减*/

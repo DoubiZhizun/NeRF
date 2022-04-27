@@ -41,7 +41,7 @@ object run_nerf {
     val adam = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
     val ps = new ParameterStore(manager, false)
     ps.setParameterServer(Engine.getInstance().newParameterServer(adam), Array(config.device))
-    config.coarseBlock = new cfBlock(config, manager, ps)
+    config.coarseBlock = null //new cfBlock(config, manager, ps)
     config.fineBlock = new cfBlock(config, manager, ps)
 
     val model = new nerf(config, ps)
@@ -62,28 +62,28 @@ object run_nerf {
         }
         if (idx % 50000 == 0) {
           print("Start to render.\n")
-          model.perturb(false)
+          model.noise(false)
           val images = renderToImage(renderDataSet, model, manager)
           val paths = Paths.get(config.basedir, s"${idx / 50000}")
           Files.createDirectories(paths)
           for (j <- images.indices) {
             images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
           }
-          model.perturb(true)
+          model.noise(true)
           print("Render over.\n")
         }
       }
     }
     print("Train over.\n")
     print("Start to final render.\n")
-    model.perturb(false)
+    model.noise(false)
     val images = renderToImage(renderDataSet, model, manager)
     val paths = Paths.get(config.basedir, "final")
     Files.createDirectories(paths)
     for (j <- images.indices) {
       images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")
     }
-    model.perturb(true)
+    model.noise(true)
     print("Render over.\n")
   }
 

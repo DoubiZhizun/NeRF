@@ -58,8 +58,8 @@ class nerf(config: nerfConfig) {
     val w = (W - 1f) / 2 / focal
     val i = manager.linspace(-w, w, IvW).reshape(1, IvW).repeat(0, IvH)
     val j = manager.linspace(-h, h, IvH).reshape(IvH, 1).repeat(1, IvW)
-    val dirs = i.getNDArrayInternal.stack(new NDList(j, manager.full(i.getShape, -1, c2w.getDataType)), -1)
-    dirs.matMul(c2w)
+    val dirs = i.getNDArrayInternal.stack(new NDList(j.neg(), manager.full(i.getShape, -1, c2w.getDataType)), -1)
+    dirs.matMul(c2w.transpose(Array(1, 0): _*))
     //返回：rays_d
     //光线的方向，尺寸(IvH, IvW, 3)
   }

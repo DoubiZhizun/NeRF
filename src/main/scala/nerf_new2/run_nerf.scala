@@ -18,21 +18,20 @@ object run_nerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      device = Device.cpu(),
+      device = Device.gpu(2),
       pos_L = 10,
       dir_L = 4,
       raw_noise_std = 1e0,
       lindisp = false,
       N_samples = 64,
       perterb = false,
-      N_rand = 1024,
       lrate = 5e-4,
       lrate_decay = 250,
       ndc = true,
       Mf = 128,
       factor = 4,
-      datadir = ".\\data\\nerf_llff_data\\fern",
-      basedir = ".\\logs")
+      datadir = "./data/nerf_llff_data/fern",
+      basedir = "./logs")
 
     val manager = NDManager.newBaseManager(config.device)
     val adam = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrate_decay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
@@ -47,19 +46,21 @@ object run_nerf {
 
     print("Start to train.\n")
     var idx = 0
-    for (_ <- 0 until 1000) {
+    for (_ <- 0 until 5000) {
       val iterator = dataSet.getData(manager).iterator()
       while (iterator.hasNext) {
         val next = iterator.next()
         val loss = model.train(hwf(0).toInt, hwf(1).toInt, hwf(2), next.getData.get(0), next.getData.get(1), images = next.getLabels.get(0))
         next.close()
         idx += 1
-        print(s"${idx} iterators train: loss is ${loss}.\n")
-        if (idx % 250 == 0) {
+        if(idx % 500 == 0){
+          print(s"${idx} iterators train: loss is ${loss}.\n")
+        }
+        if (idx % 25000 == 0) {
           print("Start to render.\n")
           model.noise(false)
           val images = renderToImage(renderDataSet, hwf, model, manager)
-          val paths = Paths.get(config.basedir, s"${idx / 50000}")
+          val paths = Paths.get(config.basedir, s"${idx / 25000}")
           Files.createDirectories(paths)
           for (j <- images.indices) {
             images(j).save(new FileOutputStream(Paths.get(paths.toString, s"$j.png").toString), "png")

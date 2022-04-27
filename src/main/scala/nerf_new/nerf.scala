@@ -83,8 +83,13 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     input.getNDArrayInternal.concat(output, -1)
   }
 
-  val addNoise = if (config.raw_noise_std > 0) (input: NDArray) => input.add(input.getManager.randomNormal(input.getShape).mul(config.raw_noise_std))
+  var addNoise = if (config.raw_noise_std > 0) (input: NDArray) => input.add(input.getManager.randomNormal(input.getShape).mul(config.raw_noise_std))
   else (input: NDArray) => input
+
+  def noise(input: Boolean): Unit = {
+    if (input && config.raw_noise_std > 0) (input: NDArray) => input.add(input.getManager.randomNormal(input.getShape).mul(config.raw_noise_std))
+    else (input: NDArray) => input
+  }
 
   val addBkgd = if (config.white_bkgd) (rgb: NDArray, weight: NDArray) => {
     rgb.add(weight.sum(Array(1)).sub(1).neg())
@@ -120,7 +125,7 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
   val getSample = if (config.lindisp) (t_vals: NDArray, near: NDArray, far: NDArray) => NDArrays.div(1, NDArrays.div(1, near).mul(NDArrays.sub(1, t_vals)).add(NDArrays.div(1, far).mul(t_vals)))
   else (t_vals: NDArray, near: NDArray, far: NDArray) => near.mul(t_vals.sub(1).neg()).add(far.mul(t_vals))
 
-  var givePerterb = if (config.perterb) (z_vals: NDArray) => {
+  val givePerterb = if (config.perterb) (z_vals: NDArray) => {
     val manager = z_vals.getManager
     val mids = z_vals.get(from1).add(z_vals.get(toNeg1)).mul(.5)
     val upper = mids.concat(z_vals.get(fromNeg1), 1)
@@ -128,17 +133,6 @@ class nerf(config: nerfConfig, ps: ParameterStore) {
     val t_rand = manager.randomUniform(0, 1, z_vals.getShape)
     lower.add(upper.sub(lower).mul(t_rand))
   } else (z_vals: NDArray) => z_vals
-
-  def perturb(input: Boolean): Unit = {
-    givePerterb = if (input && config.perterb) (z_vals: NDArray) => {
-      val manager = z_vals.getManager
-      val mids = z_vals.get(from1).add(z_vals.get(toNeg1)).mul(.5)
-      val upper = mids.concat(z_vals.get(fromNeg1), 1)
-      val lower = z_vals.get(to1).concat(mids, 1)
-      val t_rand = manager.randomUniform(0, 1, z_vals.getShape)
-      lower.add(upper.sub(lower).mul(t_rand))
-    } else (z_vals: NDArray) => z_vals
-  }
 
   //二阶球谐函数
   def SH2(viewdir: NDArray): NDArray = {
