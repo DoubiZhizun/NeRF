@@ -20,9 +20,7 @@ object coreBlockGenerator {
     var block = new SequentialBlock()
     //输入：含有两个元素的NDList，下标为0的是input_ch，下标为1的是input_ch_views
     for (i <- 0 until D) {
-      block.add(Linear.builder().setUnits(W).build()).add(new LambdaBlock(new Function[NDList, NDList] {
-        override def apply(input: NDList): NDList = new NDList(input.singletonOrThrow().sin())
-      }))
+      block.add(Linear.builder().setUnits(W).build()).add(Activation.reluBlock())
       if (skips.contains(i)) {
         val block2 = new LambdaBlock(new Function[NDList, NDList] {
           override def apply(x: NDList): NDList = new NDList(x.singletonOrThrow())
@@ -47,9 +45,7 @@ object coreBlockGenerator {
 
     val input_viewdirs = new SequentialBlock().add(new ParallelBlock(new Function[java.util.List[NDList], NDList] {
       override def apply(x: java.util.List[NDList]): NDList = new NDList(x.get(0).singletonOrThrow().add(x.get(1).singletonOrThrow().expandDims(-2)))
-    }, List[Block](bottleneck, viewdirs).asJava)).add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(input: NDList): NDList = new NDList(input.singletonOrThrow().sin())
-    })).add(Linear.builder().setUnits(Mf).build())
+    }, List[Block](bottleneck, viewdirs).asJava)).add(Activation.reluBlock()).add(Linear.builder().setUnits(Mf).build())
     new SequentialBlock().add(new ParallelBlock(new Function[java.util.List[NDList], NDList] {
       override def apply(x: java.util.List[NDList]): NDList = new NDList(x.get(0).singletonOrThrow(), x.get(1).singletonOrThrow())
     }, List[Block](block, new LambdaBlock(new Function[NDList, NDList] {
