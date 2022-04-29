@@ -10,7 +10,7 @@ import java.util.function._
 import scala.collection.JavaConverters._
 import scala.collection.mutable._
 
-class coreBlock(config: nerfConfig) {
+class coreBlock(config: nerfConfig, isCoarse:Boolean) {
   //核心模块
 
   var mlpBlock = new SequentialBlock()
@@ -84,6 +84,8 @@ class coreBlock(config: nerfConfig) {
       override def apply(t: NDList): NDList = new NDList(Fourier(t.get(2)).expandDims(-2))
     })).asJava)
   }
+
+  rgbBlock.add(Activation.reluBlock())
 
   //颜色获取网络初始化完毕
   //该模块输入为：全连接网络输出的特征，方向和时间
@@ -160,12 +162,13 @@ class coreBlock(config: nerfConfig) {
     //time：时间，最高维度尺寸为1，代表t，范围0到1，没有则为null
     //training：如果在训练则拉高
     val mlpBlockOutput = mlpBlock.forward(config.ps, new NDList(pos, time), training).singletonOrThrow()
-    val density = mlpBlockOutput.getNDArrayInternal.linear(mlpBlockOutput, config.ps.getValue(densityWeight, config.device, training), config.ps.getValue(densityBias, config.device, training)).singletonOrThrow().getNDArrayInternal.relu()
-    val rgb = rgbBlock.forward(config.ps, new NDList(mlpBlockOutput, dir, time), training).singletonOrThrow()
+    val density = mlpBlockOutput.getNDArrayInternal.linear(mlpBlockOutput, config.ps.getValue(densityWeight, config.device, training), config.ps.getValue(densityBias, config.device, training)).singletonOrThrow()
+    //density没经过relu，因为可能需要添加噪声
+    val rgb = if(!training && isCoarse) null else rgbBlock.forward(config.ps, new NDList(mlpBlockOutput, dir, time), training).singletonOrThrow()
     (density, rgb)
     //返回：
     //density：密度，最高维度尺寸为1，代表密度，大于0
-    //rgb：颜色，最高维度尺寸为3，代表r、g、b，范围0到1
+    //rgb：颜色，最高维度尺寸为3，代表r、g、b，范围0到1，如果非训练且为粗糙模型则输出null
   }
 
   def initialize(manager: NDManager): coreBlock = {

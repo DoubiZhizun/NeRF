@@ -9,16 +9,18 @@ import ai.djl.training.loss._
 class nerf(config: nerfConfig, manager: NDManager) {
 
   val loss = Loss.l2Loss("L2Loss", 1)
-  val coarseBlock = if (config.NImportance == 0) null else new coreBlock(config).initialize(manager)
-  val fineBlock = new coreBlock(config).initialize(manager)
+  val coarseBlock = if (config.NImportance == 0) null else new coreBlock(config).initialize(manager, true)
+  val fineBlock = new coreBlock(config).initialize(manager, false)
 
   def predict(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): NDArray = {
+    noise(false)
     val (_, fineRgbOut) = forward(raysO, raysD, time, near, far, viewdir, false)
     fineRgbOut
   }
 
   def train(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, label: NDArray): Float = {
     //label：尺寸(batchNum, 3)
+    noise(true)
     val collector = Engine.getInstance().newGradientCollector()
     val (coarseRgbOut, fineRgbOut) = forward(raysO, raysD, time, near, far, viewdir, true)
     val lossValue = lossCalculate(coarseRgbOut, fineRgbOut, label)
@@ -28,7 +30,7 @@ class nerf(config: nerfConfig, manager: NDManager) {
     lossValue.getFloat()
   }
 
-  val forward = if (config.NImportance == 0) forwardNoCoarse _ else forwardWithCoarse _
+  val forward = if (config.NImportance == 0) forwardWithoutCoarse _ else forwardWithCoarse _
   val lossCalculate = if (config.NImportance == 0) (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(fine)) else (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(coarse)).add(loss.evaluate(new NDList(label), new NDList(fine)))
 
   def forwardWithCoarse(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
@@ -40,19 +42,19 @@ class nerf(config: nerfConfig, manager: NDManager) {
     val (finePos, fineZVals) = samplePdf(coarseWeight, coarseZVals, raysO, raysD)
     val (findD, fineRgb) = fineBlock.forward(finePos, viewdir, time, training)
     val fineWeight = getWeight(findD, fineZVals)
-    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), fineWeight)
-    val coarseRgbOut = if (training) addBkgd(coarseWeight.mul(coarseRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), coarseWeight) else null
+    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb).sum(Array(1)), fineWeight)
+    val coarseRgbOut = if (training) addBkgd(coarseWeight.mul(coarseRgb).sum(Array(1)), coarseWeight) else null
     (coarseRgbOut, fineRgbOut)
     //输出：
     //coarseRgbOut：粗糙网络渲染结果，尺寸(batchNum, 3)
     //fineRgbOut：细腻网络渲染结果，尺寸(batchNum, 3)
   }
 
-  def forwardNoCoarse(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
+  def forwardWithoutCoarse(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
     val (finePos, fineZVals) = getInput(raysO, raysD, near, far)
     val (findD, fineRgb) = fineBlock.forward(finePos, viewdir, time, training)
     val fineWeight = getWeight(findD, fineZVals)
-    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), fineWeight)
+    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb).sum(Array(1)), fineWeight)
     (null, fineRgbOut)
     //no coarse
   }
