@@ -1,34 +1,43 @@
+
 import ai.djl.Device
-import ai.djl.engine.Engine
-import ai.djl.modality.cv.Image
-import ai.djl.modality.cv.util.NDImageUtils
+import ai.djl.modality.cv.ImageFactory
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
-import ai.djl.ndarray.types.{DataType, Shape}
-import ai.djl.nn.SequentialBlock
-import ai.djl.nn.core.Linear
-import nerf_origin.load_llff._
-
-import scala.util.Random._
-import nerf_origin._
-import nerf_origin.run_nerf_helpers._
-import ai.djl.nn.transformer.BertMaskedLanguageModelBlock._
 import ai.djl.training.ParameterStore
-import nerf_change._
-import nerf_change.coreBlockGenerator._
+import nerf._
+import _root_.nerf.llff._
 
-import java.lang.reflect.Parameter
+import java.nio.file.{Files, Paths}
 
 object test {
   def main(args: Array[String]): Unit = {
-    val manager = NDManager.newBaseManager()
-    val array = manager.arange(100f).reshape(new Shape(10, 10, 1))
-    array.setRequiresGradient(true)
-    val collector = Engine.getInstance().newGradientCollector()
-    val array2 = NDImageUtils.resize(array, 18, 18, Image.Interpolation.NEAREST)
-    collector.backward(array2)
-    collector.close()
-    print(array.getGradient)
+    val manager = NDManager.newBaseManager(Device.cpu())
+    //    val config = nerfConfig(
+    //      device = Device.gpu(2),
+    //      posL = 10,
+    //      dirL = 4,
+    //      useSH = true,
+    //      useTime = false,
+    //      timeL = 0,
+    //      D = 8,
+    //      W = 256,
+    //      skips = Array(4),
+    //      rawNoiseStd = 1e0,
+    //      whiteBkgd = true,
+    //      linDisp = false,
+    //      NSamples = 64,
+    //      NImportance = 64,
+    //      perturb = false,
+    //      batchNum = 1024,
+    //      lrate = 5e-4,
+    //      lrateDecay = 250,
+    //      ndc = true,
+    //      datadir = "./data/nerf_llff_data/fern",
+    //      basedir = "./logs")
+    val array = manager.arange(16).reshape(4, 4)
+    val array2 = manager.arange(3).repeat(2).broadcast(4, 6)
+    print(array.get(new NDIndex().addAllDim().addPickDim(array2)))
+    //    print(array.matMul(array2))
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
     //    val c = Engine.getInstance().newGradientCollector()
