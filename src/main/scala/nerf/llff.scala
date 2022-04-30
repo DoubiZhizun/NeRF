@@ -111,15 +111,15 @@ object llff {
 
     val t = raysO.get("...,2:3").add(near).div(raysD.get("...,2:3"))
     //用每个o点的z轴距离-near的距离除方向的z轴的值，得出位移量
-    raysO.sub(t.mul(raysD))
+    val raysO2 = raysO.sub(t.mul(raysD))
 
-    val o0 = raysO.get("...,0").div(raysO.get("...,2")).mul(-1 / (W / (2 * focal)))
-    val o1 = raysO.get("...,1").div(raysO.get("...,2")).mul(-1 / (H / (2 * focal)))
-    val o2 = NDArrays.div(2 * near, raysO.get("...,2")).add(1)
+    val o0 = raysO2.get("...,0").div(raysO2.get("...,2")).mul(-1 / (W / (2 * focal)))
+    val o1 = raysO2.get("...,1").div(raysO2.get("...,2")).mul(-1 / (H / (2 * focal)))
+    val o2 = NDArrays.div(2 * near, raysO2.get("...,2")).add(1)
 
-    val d0 = raysD.get("...,0").div(raysD.get("...,2")).sub(raysO.get("...,0").div(raysO.get("...,2"))).mul(-1 / (W / (2 * focal)))
-    val d1 = raysD.get("...,1").div(raysD.get("...,2")).sub(raysO.get("...,1").div(raysO.get("...,2"))).mul(-1 / (H / (2 * focal)))
-    val d2 = NDArrays.div(-2 * near, raysO.get("...,2"))
+    val d0 = raysD.get("...,0").div(raysD.get("...,2")).sub(raysO2.get("...,0").div(raysO2.get("...,2"))).mul(-1 / (W / (2 * focal)))
+    val d1 = raysD.get("...,1").div(raysD.get("...,2")).sub(raysO2.get("...,1").div(raysO2.get("...,2"))).mul(-1 / (H / (2 * focal)))
+    val d2 = NDArrays.div(-2 * near, raysO2.get("...,2"))
 
     (o0.getNDArrayInternal.stack(new NDList(o1, o2), -1), d0.getNDArrayInternal.stack(new NDList(d1, d2), -1))
     //返回分别是变换后的raysO和raysD
@@ -146,7 +146,7 @@ object llff {
       val z = normalize(c.sub(focalPoint))
       val x = cross(up, z)
       val y = cross(z, x)
-      renderPoses.add(x.getNDArrayInternal.stack(new NDList(y, z), -1))
+      renderPoses.add(x.getNDArrayInternal.stack(new NDList(y, z, c), -1))
     }
     NDArrays.stack(renderPoses, 0)
   }
@@ -156,14 +156,14 @@ object llff {
     override def apply(value: Int): Array[Path] = new Array[Path](value)
   }
 
-  def loadData(basedir: String, factor: Int, manager: NDManager): (NDArray, NDArray, NDArray) = {
+  def loadData(datadir: String, factor: Int, manager: NDManager): (NDArray, NDArray, NDArray) = {
     //读取数据，参数含义见loadLlffData
-    val posesArr = manager.decode(Files.readAllBytes(Paths.get(basedir, "posesBounds.npy")))
+    val posesArr = manager.decode(Files.readAllBytes(Paths.get(datadir, "posesBounds.npy")))
     //posesArr 0维代表不同图片，1维长度为17，分别是大小为3x5的poses和2的bds
     val poses = posesArr.get(":,:-2").reshape(-1, 3, 5)
     val bds = posesArr.get(":,-2:")
 
-    val imageDir = if (factor == 1) Paths.get(basedir, "images") else Paths.get(basedir, s"images_$factor")
+    val imageDir = if (factor == 1) Paths.get(datadir, "images") else Paths.get(datadir, s"images_$factor")
 
     val images = if (Files.exists(imageDir)) {
       //文件夹存在，直接从中读取图片
@@ -176,7 +176,7 @@ object llff {
     } else {
       //文件及不存在，创建
       Files.createDirectory(imageDir)
-      val imagesFilePath = Files.list(Paths.get(basedir, "images")).toArray(new int2ArrayPath).sortWith((x, y) => x.compareTo(y) < 0)
+      val imagesFilePath = Files.list(Paths.get(datadir, "images")).toArray(new int2ArrayPath).sortWith((x, y) => x.compareTo(y) < 0)
       val imagesNDList = new NDList(imagesFilePath.length)
       for (f <- imagesFilePath) {
         val image = ImageFactory.getInstance().fromFile(f).toNDArray(manager).toType(DataType.FLOAT32, false)
@@ -196,16 +196,16 @@ object llff {
     //poses、bds、images
   }
 
-  def loadLlffData(basedir: String, factor: Int = 8, bdFactor: Double = .75, manager: NDManager): (NDArray, NDArray, NDArray) = {
+  def loadLlffData(datadir: String, factor: Int = 8, bdFactor: Double = .75, manager: NDManager): (NDArray, NDArray, NDArray, NDArray) = {
     /*
      * 读取llff数据集
-     * basedir：放置数据集的文件夹
+     * datadir：放置数据集的文件夹
      * 其中未经压缩的训练/测试集图片放在内部的images文件夹下
      * 经过压缩的图片放在内部的images_n文件夹下，n为压缩倍数（即参数factor）
      * poses和bds数据放在posesBounds.npy中
      * bdFactor：对于边界的压缩倍数，其作用代码里会有详细解释
      */
-    var (poses, bds, images) = loadData(basedir, factor, manager)
+    var (poses, bds, images) = loadData(datadir, factor, manager)
     //希望读入的数据都将不同图片的索引放在0维
 
     poses = poses.get("...,1:2").getNDArrayInternal.concat(new NDList(poses.get("...,:1").neg(), poses.get("...,2:")), -1)
@@ -237,8 +237,8 @@ object llff {
     val renderPoses = getRenderPoses(rads, focal, .5f, 2, 120)
     //转两圈取120个点
 
-    (poses.toType(DataType.FLOAT32, false), renderPoses.toType(DataType.FLOAT32, false), images)
+    (poses.toType(DataType.FLOAT32, false), renderPoses.toType(DataType.FLOAT32, false), images, bds.toType(DataType.FLOAT32, false))
     //返回值依次为：
-    //poses、renderPoses和images
+    //poses、renderPoses、images和bds
   }
 }

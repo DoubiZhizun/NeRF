@@ -10,7 +10,7 @@ import java.util.function._
 import scala.collection.JavaConverters._
 import scala.collection.mutable._
 
-class coreBlock(config: nerfConfig, isCoarse:Boolean) {
+class coreBlock(config: nerfConfig, isCoarse: Boolean) {
   //核心模块
 
   var mlpBlock = new SequentialBlock()
@@ -26,7 +26,7 @@ class coreBlock(config: nerfConfig, isCoarse:Boolean) {
     }
   }
 
-  val inputFnc = if (config.useTime && config.timeL == 0) (pos: NDArray, t: NDArray) => pos.concat(t, -1)
+  val inputFnc = if (config.useTime && config.timeL == 0) (pos: NDArray, t: NDArray) => pos.concat(t.broadcast(Shape.update(pos.getShape, pos.getShape.dimension() - 1, 1)), -1)
   else (pos: NDArray, t: NDArray) => pos
   //输入函数，如果需要使用时间且时间是输入神经网络的话则将pos和t拼接，否则只输出pos
 
@@ -67,7 +67,7 @@ class coreBlock(config: nerfConfig, isCoarse:Boolean) {
     })).asJava)
   } else {
     rgbBlock = new SequentialBlock().add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = new NDList(t.get(0).concat(positionCode(t.get(1), config.dirL), -1))
+      override def apply(t: NDList): NDList = new NDList(t.get(0).concat(positionCode(t.get(1), config.dirL).broadcast(Shape.update(t.get(0).getShape, t.get(0).getShape.dimension() - 1, 3 + 3 * config.dirL)), -1))
     })).add(Linear.builder().setUnits(config.W / 2).build()).add(Activation.reluBlock()).add(Linear.builder().setUnits(finalOutputSize).build())
   }
 
@@ -84,8 +84,6 @@ class coreBlock(config: nerfConfig, isCoarse:Boolean) {
       override def apply(t: NDList): NDList = new NDList(Fourier(t.get(2)).expandDims(-2))
     })).asJava)
   }
-
-  rgbBlock.add(Activation.reluBlock())
 
   //颜色获取网络初始化完毕
   //该模块输入为：全连接网络输出的特征，方向和时间
@@ -164,7 +162,7 @@ class coreBlock(config: nerfConfig, isCoarse:Boolean) {
     val mlpBlockOutput = mlpBlock.forward(config.ps, new NDList(pos, time), training).singletonOrThrow()
     val density = mlpBlockOutput.getNDArrayInternal.linear(mlpBlockOutput, config.ps.getValue(densityWeight, config.device, training), config.ps.getValue(densityBias, config.device, training)).singletonOrThrow()
     //density没经过relu，因为可能需要添加噪声
-    val rgb = if(!training && isCoarse) null else rgbBlock.forward(config.ps, new NDList(mlpBlockOutput, dir, time), training).singletonOrThrow()
+    val rgb = if (!training && isCoarse) null else rgbBlock.forward(config.ps, new NDList(mlpBlockOutput, dir, time), training).singletonOrThrow()
     (density, rgb)
     //返回：
     //density：密度，最高维度尺寸为1，代表密度，大于0
@@ -172,10 +170,10 @@ class coreBlock(config: nerfConfig, isCoarse:Boolean) {
   }
 
   def initialize(manager: NDManager): coreBlock = {
-    mlpBlock.initialize(manager, DataType.FLOAT32, new Shape(1, 1, 3), new Shape(1, 1, 1))
+    mlpBlock.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, config.NSamples, 3), new Shape(config.batchNum, 1, 1))
     densityWeight.initialize(manager, DataType.FLOAT32)
     densityBias.initialize(manager, DataType.FLOAT32)
-    rgbBlock.initialize(manager, DataType.FLOAT32, new Shape(1, 1, config.W), new Shape(1, 1, 3), new Shape(1, 1, 1))
+    rgbBlock.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, config.NSamples, config.W), new Shape(config.batchNum, 1, 3), new Shape(config.batchNum, 1, 1))
     this
   }
 

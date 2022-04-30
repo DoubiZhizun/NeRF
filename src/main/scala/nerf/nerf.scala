@@ -6,11 +6,13 @@ import ai.djl.ndarray.index._
 import ai.djl.ndarray.types._
 import ai.djl.training.loss._
 
+import java.io.{DataInputStream, DataOutputStream}
+
 class nerf(config: nerfConfig, manager: NDManager) {
 
   val loss = Loss.l2Loss("L2Loss", 1)
-  val coarseBlock = if (config.NImportance == 0) null else new coreBlock(config).initialize(manager, true)
-  val fineBlock = new coreBlock(config).initialize(manager, false)
+  val coarseBlock = if (config.NImportance == 0) null else new coreBlock(config, true).initialize(manager)
+  val fineBlock = new coreBlock(config, false).initialize(manager)
 
   def predict(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): NDArray = {
     noise(false)
@@ -42,8 +44,8 @@ class nerf(config: nerfConfig, manager: NDManager) {
     val (finePos, fineZVals) = samplePdf(coarseWeight, coarseZVals, raysO, raysD)
     val (findD, fineRgb) = fineBlock.forward(finePos, viewdir, time, training)
     val fineWeight = getWeight(findD, fineZVals)
-    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb).sum(Array(1)), fineWeight)
-    val coarseRgbOut = if (training) addBkgd(coarseWeight.mul(coarseRgb).sum(Array(1)), coarseWeight) else null
+    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), fineWeight)
+    val coarseRgbOut = if (training) addBkgd(coarseWeight.mul(coarseRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), coarseWeight) else null
     (coarseRgbOut, fineRgbOut)
     //输出：
     //coarseRgbOut：粗糙网络渲染结果，尺寸(batchNum, 3)
@@ -54,7 +56,7 @@ class nerf(config: nerfConfig, manager: NDManager) {
     val (finePos, fineZVals) = getInput(raysO, raysD, near, far)
     val (findD, fineRgb) = fineBlock.forward(finePos, viewdir, time, training)
     val fineWeight = getWeight(findD, fineZVals)
-    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb).sum(Array(1)), fineWeight)
+    val fineRgbOut = addBkgd(fineWeight.mul(fineRgb.getNDArrayInternal.sigmoid()).sum(Array(1)), fineWeight)
     (null, fineRgbOut)
     //no coarse
   }
@@ -104,10 +106,10 @@ class nerf(config: nerfConfig, manager: NDManager) {
 
   def getInput(raysO: NDArray, raysD: NDArray, near: NDArray, far: NDArray): (NDArray, NDArray) = {
     //为网络准备输入
-    //raysO：尺寸(batchNum,1,3)
-    //raysD：尺寸(batchNum,1,3)
-    //near：尺寸(batchNum,1)
-    //far：尺寸(batchNum,1)
+    //raysO：尺寸(batchNum, 1, 3)
+    //raysD：尺寸(batchNum, 1, 3)
+    //near：尺寸(batchNum, 1)
+    //far：尺寸(batchNum, 1)
     val manager = raysO.getManager
     val tVals = manager.linspace(0, 1, config.NSamples)
     val zVals = givePerturb(getSample(tVals, near, far).expandDims(2))
@@ -127,16 +129,18 @@ class nerf(config: nerfConfig, manager: NDManager) {
     //raysD：尺寸(batchNum, 1, 3)
 
     val manager = weight.getManager
-    val weightCum = weight.get(":,1:-1,0").add(1e-5).stopGradient().cumSum(1)
-    val cdf = weightCum.div(weightCum.get(":,-1:"))
+    val weightCum = weight.stopGradient().get(":,1:-1,0").add(1e-5).cumSum(1)
+    val sum = weightCum.get(":,-1:")
+    val cdf = sum.zerosLike().concat(weightCum.div(sum), -1)
+    //大小NSamples - 1
 
-    val bins = zVals.get(":,1:,:").sub(zVals.get(":,:-1,:"))
+    val bins = zVals.get(":,1:,0").sub(zVals.get(":,:-1,0"))
     val u = givePerturbPDF(cdf)
 
-    var inds = cdf.concat(u, -1).argSort(-1).argSort(-1).get(s":,${config.NSamples - 2}:")
+    var inds = cdf.concat(u, -1).argSort(-1).argSort(-1).get(s":,${config.NSamples - 1}:")
     inds = inds.sub(manager.arange(config.NImportance).broadcast(inds.getShape))
-    val below = inds.sub(1).maximum(0)
-    val above = inds.minimum(config.NSamples - 3)
+    val below = inds.sub(1).maximum(0).minimum(config.NSamples - 2)
+    val above = inds.minimum(config.NSamples - 2)
 
     val cdfG0 = cdf.get(new NDIndex().addAllDim().addPickDim(below))
     val cdfG1 = cdf.get(new NDIndex().addAllDim().addPickDim(above))
@@ -150,5 +154,19 @@ class nerf(config: nerfConfig, manager: NDManager) {
     (raysO.add(raysD.mul(samples)), samples)
     //pos：尺寸(batchNum, NSamples + NImportance, 3)
     //samples：尺寸(batchNum, NSamples + NImportance, 1)
+  }
+
+  def save(os: DataOutputStream): Unit = {
+    if (config.NImportance > 0) {
+      coarseBlock.save(os)
+    }
+    fineBlock.save(os)
+  }
+
+  def load(manager: NDManager, is: DataInputStream): Unit = {
+    if (config.NImportance > 0) {
+      coarseBlock.load(manager, is)
+    }
+    fineBlock.load(manager, is)
   }
 }

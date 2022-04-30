@@ -7,6 +7,12 @@ import ai.djl.training._
 case class nerfConfig(
                        device: Device,
                        /*训练用的设备*/
+                       dataSetType: String,
+                       /*数据集类型，可选llff、blender和deepvoxels*/
+                       factor: Int,
+                       /*llff数据集的下采样率*/
+                       llffHold: Int,
+                       /*llff数据集中每多少张图片选出一张作为测试集*/
                        posL: Int,
                        dirL: Int,
                        useSH: Boolean,
@@ -38,8 +44,22 @@ case class nerfConfig(
                        ndc: Boolean,
                        /*是否使用ndc变换*/
                        datadir: String,
-                       basedir: String
+                       basedir: String,
                        /*数据文件夹*/
+                       iPrint: Int,
+                       iImage: Int,
+                       iWeight: Int,
+                       iTestSet: Int,
+                       iVideo: Int,
+                       /*多久进行一次：
+                        * iPrint：打印进度
+                        * iImage：渲染留档
+                        * iWeight：权重保存
+                        * iTestSet：测试集测试
+                        * iVideo：渲染视频
+                        */
+                       NIter: Int
+                       /*总渲染周期数*/
                      ) {
   var ps: ParameterStore = null
 }

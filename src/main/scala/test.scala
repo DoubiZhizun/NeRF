@@ -34,9 +34,11 @@ object test {
     //      ndc = true,
     //      datadir = "./data/nerf_llff_data/fern",
     //      basedir = "./logs")
-    val array = manager.arange(16).reshape(4, 4)
-    val array2 = manager.arange(3).repeat(2).broadcast(4, 6)
-    print(array.get(new NDIndex().addAllDim().addPickDim(array2)))
+    val array = manager.arange(12).reshape(2, 2, 3)
+    val array2 = manager.arange(6).reshape(1, 3, 2)
+    print(array)
+    print(array2)
+    print(array2.matMul(array))
     //    print(array.matMul(array2))
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
