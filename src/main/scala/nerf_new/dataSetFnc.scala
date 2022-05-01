@@ -33,7 +33,7 @@ object dataSetFnc {
 
   def getDataSet(config: nerfConfig, manager: NDManager): (Dataset, Int, NDList) = {
     val subManager = manager.newSubManager()
-    var (images, poses, bds, render_poses, i_test) = load_llff_data(config.datadir, 8, true, .75, false, manager = subManager)
+    var (images, poses, bds, render_poses, i_test) = load_llff_data(config.datadir, 8, true, 1, false, manager = subManager)
     val hwf = poses.get("0,:3,-1").toFloatArray
     poses = poses.get(":,:3,:4")
     hwf(0) = hwf(0).toInt

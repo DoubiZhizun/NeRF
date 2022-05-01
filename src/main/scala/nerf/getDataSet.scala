@@ -56,37 +56,42 @@ object getDataSet {
         }
       }
 
-      var raysOTrain = NDArrays.stack(raysOTrainList, 0).reshape(-1, 1, 3)
-      var raysDTrain = NDArrays.stack(raysDTrainList, 0).reshape(-1, 1, 3)
+      var raysOTrain = NDArrays.stack(raysOTrainList, 0).reshape(-1, 3)
+      var raysDTrain = NDArrays.stack(raysDTrainList, 0).reshape(-1, 3)
       val labelTrain = NDArrays.stack(labelTrainList, 0).reshape(-1, 3)
       if (config.ndc) {
         val temp = ndc(hwf(0).toInt, hwf(1).toInt, hwf(2), 1, raysOTrain, raysDTrain)
         raysOTrain = temp._1
         raysDTrain = temp._2
       }
-      val raysDTrainNorm = raysDTrain.norm(Array(-1))
-      raysDTrain = raysDTrain.div(raysDTrainNorm.expandDims(-1))
+      val raysDTrainNorm = raysDTrain.norm(Array(-1), true)
+      raysDTrain = raysDTrain.div(raysDTrainNorm)
       val nearTrain = if (config.ndc) raysDTrainNorm.zerosLike() else raysDTrainNorm.mul(near)
       val farTrain = if (config.ndc) raysDTrainNorm else raysDTrainNorm.mul(far)
 
-      var raysOTest = NDArrays.stack(raysOTestList, 0).reshape(-1, 1, 3)
-      var raysDTest = NDArrays.stack(raysDTestList, 0).reshape(-1, 1, 3)
+      var raysOTest = NDArrays.stack(raysOTestList, 0).reshape(-1, 3)
+      var raysDTest = NDArrays.stack(raysDTestList, 0).reshape(-1, 3)
       val labelTest = NDArrays.stack(labelTestList, 0).reshape(-1, 3)
       if (config.ndc) {
         val temp = ndc(hwf(0).toInt, hwf(1).toInt, hwf(2), 1, raysOTest, raysDTest)
         raysOTest = temp._1
         raysDTest = temp._2
       }
-      val raysDTestNorm = raysDTest.norm(Array(-1))
-      raysDTest = raysDTest.div(raysDTestNorm.expandDims(-1))
+      val raysDTestNorm = raysDTest.norm(Array(-1), true)
+      raysDTest = raysDTest.div(raysDTestNorm)
       val nearTest = if (config.ndc) raysDTestNorm.zerosLike() else raysDTestNorm.mul(near)
       val farTest = if (config.ndc) raysDTestNorm else raysDTestNorm.mul(far)
 
       var (renderRaysO, renderRaysD) = getRaysNp(hwf(0).toInt, hwf(1).toInt, hwf(2), renderPoses)
-      renderRaysO = renderRaysO.transpose(2, 0, 1, 3).expandDims(-2)
-      renderRaysD = renderRaysD.transpose(2, 0, 1, 3).expandDims(-2)
-      val renderRaysDNorm = renderRaysD.norm(Array(-1))
-      renderRaysD = renderRaysD.div(renderRaysDNorm.expandDims(-1))
+      renderRaysO = renderRaysO.transpose(2, 0, 1, 3)
+      renderRaysD = renderRaysD.transpose(2, 0, 1, 3)
+      if (config.ndc) {
+        val temp = ndc(hwf(0).toInt, hwf(1).toInt, hwf(2), 1, renderRaysO, renderRaysD)
+        renderRaysO = temp._1
+        renderRaysD = temp._2
+      }
+      val renderRaysDNorm = renderRaysD.norm(Array(-1), true)
+      renderRaysD = renderRaysD.div(renderRaysDNorm)
       val renderNear = if (config.ndc) renderRaysDNorm.zerosLike() else renderRaysDNorm.mul(near)
       val renderFar = if (config.ndc) renderRaysDNorm else renderRaysDNorm.mul(far)
 
@@ -108,8 +113,8 @@ object getDataSet {
       renderFar.attach(manager)
 
       subManager.close()
-      val trainDataSet = new ArrayDataset.Builder().setData(raysOTrain, raysDTrain, nearTrain, farTrain).optLabels(labelTrain).setSampling(config.batchNum, true).build()
-      val testDataSet = new ArrayDataset.Builder().setData(raysOTest, raysDTest, nearTest, farTest).optLabels(labelTest).setSampling(config.batchNum, true).build()
+      val trainDataSet = new nerfDataSet(new NDList(raysOTrain, raysDTrain, nearTrain, farTrain), new NDList(labelTrain), config.batchNum)
+      val testDataSet = new nerfDataSet(new NDList(raysOTest, raysDTest, nearTest, farTest), new NDList(labelTest), config.batchNum)
       (trainDataSet, testDataSet, new NDList(renderRaysO, renderRaysD, renderNear, renderFar))
     } else if (config.dataSetType == "blender") {
       require(false, "还不支持blender数据集。\n")
@@ -122,5 +127,4 @@ object getDataSet {
       null
     }
   }
-
 }

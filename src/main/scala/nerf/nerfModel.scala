@@ -10,7 +10,7 @@ import java.util.function._
 import scala.collection.JavaConverters._
 import scala.collection.mutable._
 
-class coreBlock(config: nerfConfig, isCoarse: Boolean) {
+class nerfModel(config: nerfConfig, isCoarse: Boolean) {
   //核心模块
 
   var mlpBlock = new SequentialBlock()
@@ -169,7 +169,7 @@ class coreBlock(config: nerfConfig, isCoarse: Boolean) {
     //rgb：颜色，最高维度尺寸为3，代表r、g、b，范围0到1，如果非训练且为粗糙模型则输出null
   }
 
-  def initialize(manager: NDManager): coreBlock = {
+  def initialize(manager: NDManager): nerfModel = {
     mlpBlock.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, config.NSamples, 3), new Shape(config.batchNum, 1, 1))
     densityWeight.initialize(manager, DataType.FLOAT32)
     densityBias.initialize(manager, DataType.FLOAT32)

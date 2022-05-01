@@ -139,7 +139,7 @@ object llff {
     val manager = rads.getManager
     val thetas = manager.linspace(0, 2 * Math.PI.toFloat * rots, N + 1).get(":-1").toFloatArray
     val renderPoses = new NDList(thetas.length)
-    val focalPoint = manager.zeros(new Shape()).toType(focal.getDataType, false).getNDArrayInternal.stack(new NDList(manager.zeros(new Shape()).toType(focal.getDataType, false), focal), 0)
+    val focalPoint = manager.zeros(new Shape()).toType(focal.getDataType, false).getNDArrayInternal.stack(new NDList(manager.zeros(new Shape()).toType(focal.getDataType, false), focal.neg()), 0)
     val up = manager.create(Array(0, 1, 0)).toType(rads.getDataType, false)
     for (theta <- thetas) {
       val c = manager.create(Array(Math.cos(theta), -math.sin(theta), -math.sin(theta * zrate))).toType(rads.getDataType, false).mul(rads)
@@ -180,7 +180,8 @@ object llff {
       val imagesNDList = new NDList(imagesFilePath.length)
       for (f <- imagesFilePath) {
         val image = ImageFactory.getInstance().fromFile(f).toNDArray(manager).toType(DataType.FLOAT32, false)
-        val imageResize = NDImageUtils.resize(image, image.getShape.get(1).toInt / factor, image.getShape.get(0).toInt / factor, Image.Interpolation.BILINEAR)
+        var imageResize = NDImageUtils.resize(image, image.getShape.get(1).toInt / factor, image.getShape.get(0).toInt / factor, Image.Interpolation.AREA)
+        imageResize = imageResize.minimum(255).maximum(0)
         imagesNDList.add(imageResize.div(255))
         ImageFactory.getInstance().fromNDArray(imageResize.toType(DataType.UINT8, false)).save(new FileOutputStream(Paths.get(imageDir.toString, f.getFileName.toString).toString), "png")
       }

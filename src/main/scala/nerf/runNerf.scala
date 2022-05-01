@@ -70,18 +70,23 @@ object runNerf {
     Files.createDirectories(weightLogPaths)
     Files.createDirectories(videoLogPaths)
 
+    val logPs = new PrintStream(Paths.get(config.basedir, "log.txt").toString)
+    System.setOut(logPs)
+
     print("Start to train.\n")
     var idx = 0
     var stop = false
+    var lossSum: Float = 0
     while (!stop) {
       val trainIterator = trainDataSet.getData(manager).iterator()
       while (trainIterator.hasNext && !stop) {
         val next = trainIterator.next()
-        val loss = model.train(next.getData.get(0), next.getData.get(1), null, next.getData.get(2), next.getData.get(3), next.getData.get(1), next.getLabels.get(0))
+        lossSum += model.train(next.getData.get(0), next.getData.get(1), null, next.getData.get(2), next.getData.get(3), next.getData.get(1), next.getLabels.get(0))
         next.close()
         idx += 1
         if (idx % config.iPrint == 0) {
-          print(s"${idx} iterators train: loss is ${loss}.\n")
+          print(s"${idx} iterators train: loss is ${lossSum / config.iPrint}.\n")
+          lossSum = 0
         }
         if (idx % config.iImage == 0) {
           val logWho = scala.util.Random.nextInt(renderDataSet.get(0).getShape.get(0).toInt)
@@ -105,19 +110,23 @@ object runNerf {
         if (idx % config.iTestSet == 0) {
           print(s"${idx} iterators: start to test.\n")
           var testIdx = 0
-          var lossSum: Float = 0
+          var lossSumTest: Float = 0
+          var lossSumTotal: Float = 0
           val testIterator = testDataSet.getData(manager).iterator()
           while (testIterator.hasNext) {
             val next = testIterator.next()
             val output = model.predict(next.getData.get(0), next.getData.get(1), null, next.getData.get(2), next.getData.get(3), next.getData.get(1))
             val loss = model.loss.evaluate(new NDList(output), new NDList(next.getLabels.get(0))).getFloat()
-            lossSum += loss
+            next.close()
+            lossSumTest += loss
+            lossSumTotal += loss
             testIdx += 1
             if (testIdx % config.iPrint == 0) {
-              print(s"${testIdx} iterators test: loss is ${loss}.\n")
+              print(s"${testIdx} iterators test: loss is ${lossSumTest / config.iPrint}.\n")
+              lossSumTest = 0
             }
           }
-          print(s"Log over, mean loss is ${lossSum / testIdx}.\n")
+          print(s"Test over, mean loss is ${lossSumTotal / testIdx}.\n")
         }
         if (idx % config.iVideo == 0) {
           print(s"${idx} iterators: log video.\n")
@@ -129,6 +138,7 @@ object runNerf {
             images(i).save(os, "png")
             os.close()
           }
+          print("Log over.\n")
         }
         if (idx % config.NIter == 0) {
           print(s"${idx} iterators: train over.\n")
@@ -136,6 +146,8 @@ object runNerf {
         }
       }
     }
+
+    logPs.close()
   }
 
   def renderToImage(input: NDList, model: nerf, manager: NDManager): Array[Image] = {

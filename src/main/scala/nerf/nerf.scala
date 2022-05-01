@@ -11,12 +11,12 @@ import java.io.{DataInputStream, DataOutputStream}
 class nerf(config: nerfConfig, manager: NDManager) {
 
   val loss = Loss.l2Loss("L2Loss", 1)
-  val coarseBlock = if (config.NImportance == 0) null else new coreBlock(config, true).initialize(manager)
-  val fineBlock = new coreBlock(config, false).initialize(manager)
+  val coarseBlock = if (config.NImportance == 0) null else new nerfModel(config, true).initialize(manager)
+  val fineBlock = new nerfModel(config, false).initialize(manager)
 
   def predict(raysO: NDArray, raysD: NDArray, time: NDArray, near: NDArray, far: NDArray, viewdir: NDArray): NDArray = {
     noise(false)
-    val (_, fineRgbOut) = forward(raysO, raysD, time, near, far, viewdir, false)
+    val (_, fineRgbOut) = forward(raysO.expandDims(-2), raysD.expandDims(-2), if (time != null) time.expandDims(-2) else null, near, far, viewdir.expandDims(-2), false)
     fineRgbOut
   }
 
@@ -24,7 +24,7 @@ class nerf(config: nerfConfig, manager: NDManager) {
     //label：尺寸(batchNum, 3)
     noise(true)
     val collector = Engine.getInstance().newGradientCollector()
-    val (coarseRgbOut, fineRgbOut) = forward(raysO, raysD, time, near, far, viewdir, true)
+    val (coarseRgbOut, fineRgbOut) = forward(raysO.expandDims(-2), raysD.expandDims(-2), if (time != null) time.expandDims(-2) else null, near, far, viewdir.expandDims(-2), true)
     val lossValue = lossCalculate(coarseRgbOut, fineRgbOut, label)
     collector.backward(lossValue)
     collector.close()
@@ -134,12 +134,12 @@ class nerf(config: nerfConfig, manager: NDManager) {
     val cdf = sum.zerosLike().concat(weightCum.div(sum), -1)
     //大小NSamples - 1
 
-    val bins = zVals.get(":,1:,0").sub(zVals.get(":,:-1,0"))
+    val bins = zVals.get(":,1:,0").add(zVals.get(":,:-1,0")).mul(.5)
     val u = givePerturbPDF(cdf)
 
     var inds = cdf.concat(u, -1).argSort(-1).argSort(-1).get(s":,${config.NSamples - 1}:")
     inds = inds.sub(manager.arange(config.NImportance).broadcast(inds.getShape))
-    val below = inds.sub(1).maximum(0).minimum(config.NSamples - 2)
+    val below = inds.sub(1).maximum(0)
     val above = inds.minimum(config.NSamples - 2)
 
     val cdfG0 = cdf.get(new NDIndex().addAllDim().addPickDim(below))

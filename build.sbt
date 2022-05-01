@@ -9,7 +9,7 @@ lazy val root = (project in file("."))
 
 libraryDependencies += "ai.djl" % "api" % "0.16.0"
 libraryDependencies += "ai.djl.pytorch" % "pytorch-engine" % "0.16.0" % "runtime"
-libraryDependencies += "ai.djl.pytorch" % "pytorch-native-cpu" % "1.8.1" % "runtime"
+libraryDependencies += "ai.djl.pytorch" % "pytorch-native-cu111" % "1.8.1" % "runtime"
 libraryDependencies += "ai.djl.pytorch" % "pytorch-jni" % "1.8.1-0.16.0" % "runtime"
 libraryDependencies += "ai.djl" % "model-zoo" % "latest.release"
 libraryDependencies += "ai.djl" % "basicdataset" % "latest.release"

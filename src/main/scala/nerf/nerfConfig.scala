@@ -6,9 +6,11 @@ import ai.djl.training._
 
 case class nerfConfig(
                        device: Device,
-                       /*训练用的设备*/
+                       //训练用的设备
+
                        dataSetType: String,
-                       /*数据集类型，可选llff、blender和deepvoxels*/
+                       //数据集类型，可选llff、blender和deepvoxels
+                     //
                        factor: Int,
                        /*llff数据集的下采样率*/
                        llffHold: Int,
