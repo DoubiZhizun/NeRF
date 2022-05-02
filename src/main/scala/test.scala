@@ -34,11 +34,11 @@ object test {
     //      ndc = true,
     //      datadir = "./data/nerf_llff_data/fern",
     //      basedir = "./logs")
-    val array = manager.arange(12).reshape(2, 2, 3)
-    val array2 = manager.arange(6).reshape(1, 3, 2)
+    val array = manager.arange(2).reshape(2, 1)
+    val array2 = manager.arange(2)
     print(array)
     print(array2)
-    print(array2.matMul(array))
+    print(array.sub(array2))
     //    print(array.matMul(array2))
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)

@@ -22,7 +22,7 @@ object getDataSet {
   def apply(config: nerfConfig, manager: NDManager): (Dataset, Dataset, NDList) = {
     val subManager = manager.newSubManager()
     if (config.dataSetType == "llff") {
-      var (poses, renderPoses, images, bds) = loadLlffData(config.datadir, config.factor, .75, subManager)
+      var (poses, renderPoses, images, bds) = loadLlffData(config.dataDir, config.factor, .75, subManager)
 
       val hwf = poses.get("0,:3,-1").toFloatArray
       //hwf中的三项分别是高、宽、焦距
@@ -66,8 +66,7 @@ object getDataSet {
       }
       val raysDTrainNorm = raysDTrain.norm(Array(-1), true)
       raysDTrain = raysDTrain.div(raysDTrainNorm)
-      val nearTrain = if (config.ndc) raysDTrainNorm.zerosLike() else raysDTrainNorm.mul(near)
-      val farTrain = if (config.ndc) raysDTrainNorm else raysDTrainNorm.mul(far)
+      val boundsTrain = if (config.ndc) raysDTrainNorm.zerosLike().concat(raysDTrainNorm, -1) else raysDTrainNorm.mul(near).concat(raysDTrainNorm.mul(far), -1)
 
       var raysOTest = NDArrays.stack(raysOTestList, 0).reshape(-1, 3)
       var raysDTest = NDArrays.stack(raysDTestList, 0).reshape(-1, 3)
@@ -79,8 +78,7 @@ object getDataSet {
       }
       val raysDTestNorm = raysDTest.norm(Array(-1), true)
       raysDTest = raysDTest.div(raysDTestNorm)
-      val nearTest = if (config.ndc) raysDTestNorm.zerosLike() else raysDTestNorm.mul(near)
-      val farTest = if (config.ndc) raysDTestNorm else raysDTestNorm.mul(far)
+      val boundsTest = if (config.ndc) raysDTestNorm.zerosLike().concat(raysDTestNorm, -1) else raysDTestNorm.mul(near).concat(raysDTestNorm.mul(far), -1)
 
       var (renderRaysO, renderRaysD) = getRaysNp(hwf(0).toInt, hwf(1).toInt, hwf(2), renderPoses)
       renderRaysO = renderRaysO.transpose(2, 0, 1, 3)
@@ -92,30 +90,26 @@ object getDataSet {
       }
       val renderRaysDNorm = renderRaysD.norm(Array(-1), true)
       renderRaysD = renderRaysD.div(renderRaysDNorm)
-      val renderNear = if (config.ndc) renderRaysDNorm.zerosLike() else renderRaysDNorm.mul(near)
-      val renderFar = if (config.ndc) renderRaysDNorm else renderRaysDNorm.mul(far)
+      val renderBounds = if (config.ndc) renderRaysDNorm.zerosLike().concat(renderRaysDNorm, -1) else renderRaysDNorm.mul(near).concat(renderRaysDNorm.mul(far), -1)
 
       raysOTrain.attach(manager)
       raysDTrain.attach(manager)
-      nearTrain.attach(manager)
-      farTrain.attach(manager)
+      boundsTrain.attach(manager)
       labelTrain.attach(manager)
 
       raysOTest.attach(manager)
       raysDTest.attach(manager)
-      nearTest.attach(manager)
-      farTest.attach(manager)
+      boundsTest.attach(manager)
       labelTest.attach(manager)
 
       renderRaysO.attach(manager)
       renderRaysD.attach(manager)
-      renderNear.attach(manager)
-      renderFar.attach(manager)
+      renderBounds.attach(manager)
 
       subManager.close()
-      val trainDataSet = new nerfDataSet(new NDList(raysOTrain, raysDTrain, nearTrain, farTrain), new NDList(labelTrain), config.batchNum)
-      val testDataSet = new nerfDataSet(new NDList(raysOTest, raysDTest, nearTest, farTest), new NDList(labelTest), config.batchNum)
-      (trainDataSet, testDataSet, new NDList(renderRaysO, renderRaysD, renderNear, renderFar))
+      val trainDataSet = new nerfDataSet(new NDList(raysOTrain, raysDTrain, boundsTrain), new NDList(labelTrain), config.batchNum)
+      val testDataSet = new nerfDataSet(new NDList(raysOTest, raysDTest, boundsTest), new NDList(labelTest), config.batchNum)
+      (trainDataSet, testDataSet, new NDList(renderRaysO, renderRaysD, renderBounds))
     } else if (config.dataSetType == "blender") {
       require(false, "还不支持blender数据集。\n")
       null

@@ -1,67 +1,57 @@
 package nerf
 
 import ai.djl._
-import ai.djl.nn._
 import ai.djl.training._
 
 case class nerfConfig(
-                       device: Device,
-                       //训练用的设备
+                       device: Device, //训练用的设备
 
-                       dataSetType: String,
-                       //数据集类型，可选llff、blender和deepvoxels
-                     //
-                       factor: Int,
-                       /*llff数据集的下采样率*/
-                       llffHold: Int,
-                       /*llff数据集中每多少张图片选出一张作为测试集*/
-                       posL: Int,
-                       dirL: Int,
-                       useSH: Boolean,
-                       /*位置和方向的位置编码的阶数，如果使用SH则方向不进行位置编码，SH默认三阶*/
-                       useTime: Boolean,
-                       timeL: Int,
-                       /*是否加时间和时间的加入方法，若timeL = 0则加入到网络中，否则以timeL阶傅里叶级数的形式加入
-                         实际操作中该值可能跟所表示的时间长度有关*/
-                       D: Int,
-                       W: Int,
-                       skips: Array[Int],
-                       /*网络结构，D为深度，W为每层点数，skips为重新插入位置编码结果的地方*/
-                       rawNoiseStd: Double,
-                       /*混入的噪声的方差，若为0则不混入噪声*/
-                       whiteBkgd: Boolean,
-                       /*若为true，视背景为白色*/
-                       linDisp: Boolean,
-                       /*若为true，则采样在视差下为线性，否则在深度下为线性*/
-                       NSamples: Int,
-                       NImportance: Int,
-                       /*粗糙网络的采样点数和细腻网络的额外采样点数，若细腻网络采点数小于0则认为无细腻网络*/
-                       perturb: Boolean,
-                       /*若为true，给采样加随机位移*/
-                       batchNum: Int,
-                       /*batchNum*/
-                       lrate: Double,
-                       lrateDecay: Int,
-                       /*学习率与学习率衰减*/
-                       ndc: Boolean,
-                       /*是否使用ndc变换*/
-                       datadir: String,
-                       basedir: String,
-                       /*数据文件夹*/
-                       iPrint: Int,
-                       iImage: Int,
-                       iWeight: Int,
-                       iTestSet: Int,
-                       iVideo: Int,
-                       /*多久进行一次：
-                        * iPrint：打印进度
-                        * iImage：渲染留档
-                        * iWeight：权重保存
-                        * iTestSet：测试集测试
-                        * iVideo：渲染视频
-                        */
-                       NIter: Int
-                       /*总渲染周期数*/
+                       dataSetType: String, //数据集类型，可选llff、blender和deepvoxels
+
+                       //llff数据集选项
+                       factor: Int, //llff数据集的下采样率
+                       llffHold: Int, //llff数据集中每多少张图片选出一张作为测试集
+
+                       //网络模型配置
+                       useDir: Boolean, //是否使用方向参数
+                       useSH: Boolean, //如果使用方向参数，则该项表示是否使用球谐函数，球谐函数阶数固定2（9个系数）
+                       useTime: Boolean, //是否使用时间参数
+                       useFourier: Boolean, //如果使用时间参数，则该项表示是否使用傅里叶级数
+                       fourierL: Int, //如果使用傅里叶级数，则该项表示使用的傅里叶级数的阶数
+                       useHierarchical: Boolean, //是否使用分层体采样
+
+                       posL: Int, //点的位置编码阶数
+                       timeL: Int, //如果使用时间参数且不使用傅里叶级数，则该项表示时间的位置编码阶数
+                       dirL: Int, //如果使用方向参数且不适用球谐函数，则该项表示方向的位置编码阶数
+
+                       D: Int, //网络每层宽度，>= 1
+                       W: Int, //网络层数（深度）
+                       skips: Array[Int], //网络中再次输入的层
+
+                       NSamples: Int, //粗糙网络采样点数
+                       NImportance: Int, //如果使用分层体采样，则该项表示细腻网络的额外采样点数
+
+                       rawNoiseStd: Double, //混入的噪声的方差，若为0则不混入噪声
+                       whiteBkgd: Boolean, //若为true，视背景为白色
+                       linDisp: Boolean, //若为true，则采样在视差下为线性，否则在深度下为线性
+                       perturb: Boolean, //若为true，给采样加随机位移
+                       ndc: Boolean, //是否使用ndc变换，llff数据集可能会用到
+
+                       batchNum: Int, //训练每批光线数
+
+                       lrate: Double, //学习率
+                       lrateDecay: Int, //学习率衰减，每lrateDecay * 1000个训练周期衰减到原来的0.1倍
+
+                       dataDir: String, //数据文件夹
+                       logDir: String, //log文件夹
+
+                       iPrint: Int, //多少次训练周期进行一次打印进度
+                       iImage: Int, //多少次训练周期进行一次渲染留档
+                       iWeight: Int, //多少次训练周期进行一次权重保存
+                       iTestSet: Int, //多少次训练周期进行一次测试机测试
+                       iVideo: Int, //多少次训练周期进行一次渲染视频
+
+                       NIter: Int //总训练周期数
                      ) {
   var ps: ParameterStore = null
 }

@@ -6,6 +6,7 @@ import ai.djl.nn._
 import ai.djl.nn.core._
 
 import java.io._
+import java.util
 import java.util.function._
 import scala.collection.JavaConverters._
 import scala.collection.mutable._
@@ -13,108 +14,163 @@ import scala.collection.mutable._
 class nerfModel(config: nerfConfig, isCoarse: Boolean) {
   //核心模块
 
-  var mlpBlock = new SequentialBlock()
+  val mlpInput = if (config.useTime && !config.useFourier) new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(positionCode(t.get(0), config.posL), positionCode(t.get(1), config.timeL))
+  }) else new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(positionCode(t.get(0), config.posL))
+  })
 
-  for (i <- 0 until config.D) {
-    mlpBlock.add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
-    if (config.skips.contains(i)) {
-      mlpBlock = new SequentialBlock().add(new ParallelBlock(new Function[java.util.List[NDList], NDList] {
-        override def apply(x: java.util.List[NDList]): NDList = new NDList(x.get(0).singletonOrThrow().concat(x.get(1).singletonOrThrow(), -1))
-      }, List[Block](mlpBlock, new LambdaBlock(new Function[NDList, NDList] {
-        override def apply(t: NDList): NDList = t
-      })).asJava))
+  def getMlpInput(): Block = {
+    if (config.useTime && !config.useFourier) {
+      new ParallelBlock(new Function[util.List[NDList], NDList] {
+        override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()))
+      }, List[Block](new SequentialBlock().add(new Function[NDList, NDList] {
+        override def apply(t: NDList): NDList = new NDList(t.get(0))
+      }).add(Linear.builder().setUnits(config.W).build()), new SequentialBlock().add(new Function[NDList, NDList] {
+        override def apply(t: NDList): NDList = new NDList(t.get(1))
+      }).add(Linear.builder().setUnits(config.W).build())).asJava)
+    } else {
+      Linear.builder().setUnits(config.W).build()
     }
   }
 
-  val inputFnc = if (config.useTime && config.timeL == 0) (pos: NDArray, t: NDArray) => pos.concat(t.broadcast(Shape.update(pos.getShape, pos.getShape.dimension() - 1, 1)), -1)
-  else (pos: NDArray, t: NDArray) => pos
-  //输入函数，如果需要使用时间且时间是输入神经网络的话则将pos和t拼接，否则只输出pos
+  var block = new SequentialBlock().add(getMlpInput()).add(Activation.reluBlock())
 
-  mlpBlock = new SequentialBlock().add(new Function[NDList, NDList] {
-    override def apply(t: NDList): NDList = new NDList(positionCode(inputFnc(t.get(0), t.get(1)), config.posL))
-  }).add(mlpBlock)
+  for (i <- 1 until config.D) {
+    block.add(Linear.builder().setUnits(config.W).build())
+    if (config.skips.contains(i - 1)) {
+      block = new SequentialBlock().add(new ParallelBlock(new Function[util.List[NDList], NDList] {
+        override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()))
+      }, List[Block](block, getMlpInput()).asJava))
+    }
+    block.add(Activation.reluBlock())
+  }
 
-  //全连接网络构造完毕
-  //该模块输入为：点的位置和时间
-  //该模块输出为：W个点的特征
+  val timeBlock = if (config.useTime && config.useFourier) new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(Fourier(t.get(1), config.fourierL))
+  }) else new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(1))
+  })
 
-  val densityWeight = Parameter.builder().setType(Parameter.Type.WEIGHT).optShape(new Shape(1, config.W)).build()
-  val densityBias = Parameter.builder().setType(Parameter.Type.BIAS).optShape(new Shape(1)).build()
-  //得到密度
+  block = new SequentialBlock().add(new ParallelBlock(new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow(), t.get(1).singletonOrThrow())
+  }, List[Block](new SequentialBlock().add(mlpInput).add(block), timeBlock).asJava))
 
-  var rgbBlock: Block = null
+  val bf = new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().mul(t.get(2).singletonOrThrow()), t.get(1).singletonOrThrow().sum(Array(-1), true), t.get(2).get(0))
+  }
 
-  val timeInputSize = 1 + 2 * config.timeL
-  val shOutputSize = if (config.useTime) 3 * timeInputSize else 3
-  val finalOutputSize = if (config.useSH) shOutputSize * 9 else shOutputSize
+  block.add(new ParallelBlock(if (config.useTime && config.useFourier) bf else new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow(), t.get(1).singletonOrThrow(), t.get(2).singletonOrThrow())
+  }, List[Block](new SequentialBlock().add(new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(0))
+  })).add(Linear.builder().setUnits(if (config.useTime && config.useFourier) 1 + 2 * config.fourierL else 1).build()), new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(0))
+  }), new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(1))
+  })).asJava))
 
-  //先用球谐函数系数拟合不同方向的颜色的傅里叶系数
-  //再用傅里叶系数拟合不同时间的颜色
+  val dirBlock = if (config.useDir) if (config.useSH) new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(SH2(t.get(1)))
+  }) else new SequentialBlock().add(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(positionCode(t.get(1), config.dirL))
+  }).add(Linear.builder().setUnits(config.W / 2).build()) else new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(1))
+  })
 
-  if (config.useSH) {
-    rgbBlock = new ParallelBlock(new Function[java.util.List[NDList], NDList] {
-      override def apply(t: java.util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().mul(t.get(1).singletonOrThrow()).sum(Array(-1)))
-    }, List[Block](new SequentialBlock().add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = new NDList(t.get(0))
-    })).add(Linear.builder().setUnits(finalOutputSize).build()).add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = {
-        val elem = t.singletonOrThrow()
-        val shape = Shape.update(elem.getShape, elem.getShape.dimension() - 1, shOutputSize).add(9)
-        new NDList(elem.reshape(shape))
+  val block2 = new SequentialBlock().add(new ParallelBlock(new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow(), t.get(1).singletonOrThrow(), t.get(2).singletonOrThrow())
+  }, List[Block](new SequentialBlock().add(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(0))
+  }).add(Linear.builder().setUnits(config.W / 2).build()), dirBlock, new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(2))
+  })).asJava))
+
+  val processBlock = new SequentialBlock().add(if (config.useDir && !config.useSH) new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(0).add(t.get(1)).getNDArrayInternal.relu())
+  } else new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = new NDList(t.get(0).getNDArrayInternal.relu())
+  })
+
+  if (config.useDir && config.useSH || config.useTime && config.useFourier) {
+    val linearList: List[Block] = if (config.useDir && config.useSH) if (config.useTime && config.useFourier) List.fill(3 * (1 + 2 * config.fourierL))(Linear.builder().setUnits(9).build()) else List.fill(3)(Linear.builder().setUnits(9).build()) else List.fill(3)(Linear.builder().setUnits(1 + 2 * config.fourierL).build())
+    processBlock.add(new ParallelBlock(new Function[util.List[NDList], NDList] {
+      override def apply(t: util.List[NDList]): NDList = {
+        val output = new NDList(t.size())
+        for (i <- 0 until t.size()) {
+          output.add(t.get(i).singletonOrThrow())
+        }
+        output
       }
-    })), new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = new NDList(SH2(t.get(1)).expandDims(-2))
-    })).asJava)
+    }, linearList.asJava))
   } else {
-    rgbBlock = new SequentialBlock().add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = new NDList(t.get(0).concat(positionCode(t.get(1), config.dirL).broadcast(Shape.update(t.get(0).getShape, t.get(0).getShape.dimension() - 1, 3 + 3 * config.dirL)), -1))
-    })).add(Linear.builder().setUnits(config.W / 2).build()).add(Activation.reluBlock()).add(Linear.builder().setUnits(finalOutputSize).build())
+    processBlock.add(Linear.builder().setUnits(3).build())
   }
 
-  if (config.useTime && config.timeL != 0) {
-    rgbBlock = new ParallelBlock(new Function[java.util.List[NDList], NDList] {
-      override def apply(t: java.util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().mul(t.get(1).singletonOrThrow()).sum(Array(-1)))
-    }, List[Block]((if (config.useSH) new SequentialBlock().add(rgbBlock) else rgbBlock.asInstanceOf[SequentialBlock]).add(new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = {
-        val elem = t.singletonOrThrow()
-        val shape = Shape.update(elem.getShape, elem.getShape.dimension() - 1, 3).add(timeInputSize)
-        new NDList(elem.reshape(shape))
+  val shF = new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = {
+      val temp1 = new NDList(t.get(1).size() / 3)
+      val temp2 = new NDList(t.get(1).size() / 3)
+      val temp3 = new NDList(t.get(1).size() / 3)
+      for (i <- 0 until(t.get(1).size(), 3)) {
+        temp1.add(t.get(1).get(i).mul(t.get(0).get(1)).sum(Array(-1)))
+        temp2.add(t.get(1).get(i + 1).mul(t.get(0).get(1)).sum(Array(-1)))
+        temp3.add(t.get(1).get(i + 2).mul(t.get(0).get(1)).sum(Array(-1)))
       }
-    })), new LambdaBlock(new Function[NDList, NDList] {
-      override def apply(t: NDList): NDList = new NDList(Fourier(t.get(2)).expandDims(-2))
-    })).asJava)
+      new NDList(NDArrays.stack(new NDList(NDArrays.stack(temp1, -1).mul(t.get(0).get(2)).sum(Array(-1)), NDArrays.stack(temp2, -1).mul(t.get(0).get(2)).sum(Array(-1)), NDArrays.stack(temp3, -1).mul(t.get(0).get(2)).sum(Array(-1))), -1))
+    }
   }
 
-  //颜色获取网络初始化完毕
-  //该模块输入为：全连接网络输出的特征，方向和时间
-  //该模块输出为：rgb
+  val sh = new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = {
+      val temp1 = t.get(1).get(0).mul(t.get(0).get(1)).sum(Array(-1))
+      val temp2 = t.get(1).get(1).mul(t.get(0).get(1)).sum(Array(-1))
+      val temp3 = t.get(1).get(2).mul(t.get(0).get(1)).sum(Array(-1))
+      new NDList(NDArrays.stack(new NDList(temp1, temp2, temp3), -1))
+    }
+  }
+
+  val f = new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = {
+      val temp1 = t.get(1).get(0).mul(t.get(0).get(2)).sum(Array(-1))
+      val temp2 = t.get(1).get(1).mul(t.get(0).get(2)).sum(Array(-1))
+      val temp3 = t.get(1).get(2).mul(t.get(0).get(2)).sum(Array(-1))
+      new NDList(NDArrays.stack(new NDList(temp1, temp2, temp3), -1))
+    }
+  }
+
+  block2.add(new ParallelBlock(if (config.useDir && config.useSH) if (config.useTime && config.useFourier) shF else sh else if (config.useTime && config.useFourier) f else new Function[util.List[NDList], NDList] {
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).get(0), t.get(1).singletonOrThrow())
+  }, List[Block](new LambdaBlock(new Function[NDList, NDList] {
+    override def apply(t: NDList): NDList = t
+  }), processBlock).asJava))
+
+  //网络构造完毕
+  //该模块输入为：点的位置、方向和时间
+  //该模块输出为：密度和颜色
 
   def positionCode(input: NDArray, L: Int): NDArray = {
     //sin cos位置编码，L为编码阶数
     val output = new NDList(L * 2)
-    var factor = Math.PI
-    for (_ <- 0 until L) {
-      val inputMulFactor = input.mul(factor)
+    for (i <- 0 until L) {
+      val inputMulFactor = input.mul(Math.PI * (1 << i))
       output.add(inputMulFactor.sin())
       output.add(inputMulFactor.cos())
-      factor *= 2
     }
     input.getNDArrayInternal.concat(output, -1)
   }
 
-  val freq = (1 to config.timeL).map(i => 2 * i * Math.PI)
-
-  def Fourier(t: NDArray): NDArray = {
+  def Fourier(t: NDArray, L: Int): NDArray = {
     //L阶傅里叶级数
-    //t的范围是0到1
-    val outputList = new NDList(config.timeL * 2 + 1)
+    //t的范围是-1到1
+    val outputList = new NDList(L * 2 + 1)
     outputList.add(t.onesLike())
-    for (f <- freq) {
-      val tpi = t.mul(f)
+    for (i <- 0 until L) {
+      val tpi = t.mul((i + 1) * Math.PI)
       outputList.add(tpi.cos())
       outputList.add(tpi.sin())
     }
-    NDArrays.stack(outputList, -1)
+    NDArrays.concat(outputList, -1)
   }
 
   def SH2(viewdir: NDArray): NDArray = {
@@ -157,37 +213,29 @@ class nerfModel(config: nerfConfig, isCoarse: Boolean) {
     //输入：
     //pos：位置，最高维度尺寸为3，代表x、y、z，范围-1到1
     //dir：方向，最高维度尺寸为3，代表x、y、z，范围-1到1
-    //time：时间，最高维度尺寸为1，代表t，范围0到1，没有则为null
+    //time：时间，最高维度尺寸为1，代表t，范围-1到1，没有则为null
     //training：如果在训练则拉高
-    val mlpBlockOutput = mlpBlock.forward(config.ps, new NDList(pos, time), training).singletonOrThrow()
-    val density = mlpBlockOutput.getNDArrayInternal.linear(mlpBlockOutput, config.ps.getValue(densityWeight, config.device, training), config.ps.getValue(densityBias, config.device, training)).singletonOrThrow()
-    //density没经过relu，因为可能需要添加噪声
-    val rgb = if (!training && isCoarse) null else rgbBlock.forward(config.ps, new NDList(mlpBlockOutput, dir, time), training).singletonOrThrow()
-    (density, rgb)
+    val output = block.forward(config.ps, new NDList(pos, time), training)
+    val output2 = if (isCoarse && !training) null else block2.forward(config.ps, new NDList(output.get(1), dir, output.get(2)), training).singletonOrThrow()
+    (output.get(0), output2)
     //返回：
     //density：密度，最高维度尺寸为1，代表密度，大于0
     //rgb：颜色，最高维度尺寸为3，代表r、g、b，范围0到1，如果非训练且为粗糙模型则输出null
   }
 
   def initialize(manager: NDManager): nerfModel = {
-    mlpBlock.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, config.NSamples, 3), new Shape(config.batchNum, 1, 1))
-    densityWeight.initialize(manager, DataType.FLOAT32)
-    densityBias.initialize(manager, DataType.FLOAT32)
-    rgbBlock.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, config.NSamples, config.W), new Shape(config.batchNum, 1, 3), new Shape(config.batchNum, 1, 1))
+    block.initialize(manager, DataType.FLOAT32, new Shape(config.NSamples, config.batchNum, 3), new Shape(config.batchNum, 1))
+    block2.initialize(manager, DataType.FLOAT32, new Shape(config.NSamples, config.batchNum, config.W), new Shape(config.batchNum, 3), new Shape(config.batchNum, 1 + 2 * config.fourierL))
     this
   }
 
   def save(os: DataOutputStream): Unit = {
-    mlpBlock.saveParameters(os)
-    densityWeight.save(os)
-    densityBias.save(os)
-    rgbBlock.saveParameters(os)
+    block.saveParameters(os)
+    block2.saveParameters(os)
   }
 
   def load(manager: NDManager, is: DataInputStream): Unit = {
-    mlpBlock.loadParameters(manager, is)
-    densityWeight.load(manager, is)
-    densityBias.load(manager, is)
-    rgbBlock.loadParameters(manager, is)
+    block.loadParameters(manager, is)
+    block2.loadParameters(manager, is)
   }
 }
