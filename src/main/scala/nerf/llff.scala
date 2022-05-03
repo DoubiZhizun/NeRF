@@ -111,15 +111,21 @@ object llff {
 
     val t = raysO.get("...,2:3").add(near).div(raysD.get("...,2:3"))
     //用每个o点的z轴距离-near的距离除方向的z轴的值，得出位移量
-    val raysO2 = raysO.sub(t.mul(raysD))
+    val raysOTemp = raysO.sub(t.mul(raysD))
+    val raysO0 = raysOTemp.get("...,0")
+    val raysO1 = raysOTemp.get("...,1")
+    val raysO2 = raysOTemp.get("...,2")
+    val raysD0 = raysD.get("...,0")
+    val raysD1 = raysD.get("...,1")
+    val raysD2 = raysD.get("...,2")
 
-    val o0 = raysO2.get("...,0").div(raysO2.get("...,2")).mul(-1 / (W / (2 * focal)))
-    val o1 = raysO2.get("...,1").div(raysO2.get("...,2")).mul(-1 / (H / (2 * focal)))
-    val o2 = NDArrays.div(2 * near, raysO2.get("...,2")).add(1)
+    val o0 = raysO0.div(raysO2).mul(-1 / (W / (2 * focal)))
+    val o1 = raysO1.div(raysO2).mul(-1 / (H / (2 * focal)))
+    val o2 = NDArrays.div(2 * near, raysO2).add(1)
 
-    val d0 = raysD.get("...,0").div(raysD.get("...,2")).sub(raysO2.get("...,0").div(raysO2.get("...,2"))).mul(-1 / (W / (2 * focal)))
-    val d1 = raysD.get("...,1").div(raysD.get("...,2")).sub(raysO2.get("...,1").div(raysO2.get("...,2"))).mul(-1 / (H / (2 * focal)))
-    val d2 = NDArrays.div(-2 * near, raysO2.get("...,2"))
+    val d0 = raysD0.div(raysD2).sub(raysO0.div(raysO2)).mul(-1 / (W / (2 * focal)))
+    val d1 = raysD1.div(raysD2).sub(raysO1.div(raysO2)).mul(-1 / (H / (2 * focal)))
+    val d2 = NDArrays.div(-2 * near, raysO2)
 
     (o0.getNDArrayInternal.stack(new NDList(o1, o2), -1), d0.getNDArrayInternal.stack(new NDList(d1, d2), -1))
     //返回分别是变换后的raysO和raysD

@@ -57,13 +57,13 @@ class nerfModel(config: nerfConfig, isCoarse: Boolean) {
   }, List[Block](new SequentialBlock().add(mlpInput).add(block), timeBlock).asJava))
 
   val bf = new Function[util.List[NDList], NDList] {
-    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().mul(t.get(2).singletonOrThrow()), t.get(1).singletonOrThrow().sum(Array(-1), true), t.get(2).get(0))
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow().mul(t.get(2).singletonOrThrow()).sum(Array(-1), true), t.get(1).singletonOrThrow(), t.get(2).get(0))
   }
 
   block.add(new ParallelBlock(if (config.useTime && config.useFourier) bf else new Function[util.List[NDList], NDList] {
     override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).singletonOrThrow(), t.get(1).singletonOrThrow(), t.get(2).singletonOrThrow())
   }, List[Block](new SequentialBlock().add(new LambdaBlock(new Function[NDList, NDList] {
-    override def apply(t: NDList): NDList = new NDList(t.get(0))
+    override def apply(t: NDList): NDList = new NDList(t.get(0).get(":-1"))
   })).add(Linear.builder().setUnits(if (config.useTime && config.useFourier) 1 + 2 * config.fourierL else 1).build()), new LambdaBlock(new Function[NDList, NDList] {
     override def apply(t: NDList): NDList = new NDList(t.get(0))
   }), new LambdaBlock(new Function[NDList, NDList] {
@@ -140,7 +140,7 @@ class nerfModel(config: nerfConfig, isCoarse: Boolean) {
   }
 
   block2.add(new ParallelBlock(if (config.useDir && config.useSH) if (config.useTime && config.useFourier) shF else sh else if (config.useTime && config.useFourier) f else new Function[util.List[NDList], NDList] {
-    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(0).get(0), t.get(1).singletonOrThrow())
+    override def apply(t: util.List[NDList]): NDList = new NDList(t.get(1).singletonOrThrow())
   }, List[Block](new LambdaBlock(new Function[NDList, NDList] {
     override def apply(t: NDList): NDList = t
   }), processBlock).asJava))

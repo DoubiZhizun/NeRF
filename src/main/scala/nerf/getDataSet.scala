@@ -20,9 +20,12 @@ object getDataSet {
   }
 
   def apply(config: nerfConfig, manager: NDManager): (Dataset, Dataset, NDList) = {
-    val subManager = manager.newSubManager()
     if (config.dataSetType == "llff") {
-      var (poses, renderPoses, images, bds) = loadLlffData(config.dataDir, config.factor, .75, subManager)
+      val subManager = manager.newSubManager()
+      val subSubManager = subManager.newSubManager()
+      var (poses, renderPoses, images, bds) = loadLlffData(config.dataDir, config.factor, .75, subSubManager)
+      new NDList(poses, renderPoses, images, bds).attach(subManager)
+      subSubManager.close()
 
       val hwf = poses.get("0,:3,-1").toFloatArray
       //hwf中的三项分别是高、宽、焦距
@@ -107,8 +110,10 @@ object getDataSet {
       renderBounds.attach(manager)
 
       subManager.close()
-      val trainDataSet = new nerfDataSet(new NDList(raysOTrain, raysDTrain, boundsTrain), new NDList(labelTrain), config.batchNum)
-      val testDataSet = new nerfDataSet(new NDList(raysOTest, raysDTest, boundsTest), new NDList(labelTest), config.batchNum)
+      val trainDataSet = //new ArrayDataset.Builder().setData(raysOTrain, raysDTrain, boundsTrain).optLabels(labelTrain).setSampling(config.batchNum, true).build()
+        new nerfDataSet(new NDList(raysOTrain, raysDTrain, boundsTrain), new NDList(labelTrain), config.batchNum)
+      val testDataSet = //new ArrayDataset.Builder().setData(raysOTest, raysDTest, boundsTest).optLabels(labelTest).setSampling(config.batchNum, true).build()
+        new nerfDataSet(new NDList(raysOTest, raysDTest, boundsTest), new NDList(labelTest), config.batchNum)
       (trainDataSet, testDataSet, new NDList(renderRaysO, renderRaysD, renderBounds))
     } else if (config.dataSetType == "blender") {
       require(false, "还不支持blender数据集。\n")

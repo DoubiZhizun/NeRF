@@ -20,43 +20,7 @@ import java.nio.file._
 
 object runNerf {
 
-  def train(): Unit = {
-
-    val config = nerfConfig(
-      device = Device.gpu(1),
-      dataSetType = "llff",
-      factor = 8,
-      llffHold = 8,
-      useDir = true,
-      useSH = true,
-      useTime = false,
-      useFourier = false,
-      fourierL = 5,
-      useHierarchical = true,
-      posL = 10,
-      timeL = 10,
-      dirL = 4,
-      D = 8,
-      W = 256,
-      skips = Array(4),
-      NSamples = 64,
-      NImportance = 64,
-      rawNoiseStd = 1e0,
-      whiteBkgd = false,
-      linDisp = false,
-      perturb = false,
-      ndc = true,
-      batchNum = 1024,
-      lrate = 5e-4,
-      lrateDecay = 250,
-      dataDir = "./data/nerf_llff_data/fern",
-      logDir = "./logs",
-      iPrint = 100,
-      iImage = 500,
-      iWeight = 10000,
-      iTestSet = 50000,
-      iVideo = 50000,
-      NIter = 1000000)
+  def train(config: nerfConfig): Unit = {
 
     val manager = NDManager.newBaseManager(config.device)
     val adam = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrateDecay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
@@ -77,7 +41,7 @@ object runNerf {
     val logPs = new PrintStream(Paths.get(config.logDir, "log.txt").toString)
     System.setOut(logPs)
 
-    print("Start to train.\n")
+    print("Train start.\n")
     var idx = 0
     var stop = false
     var lossSum: Float = 0
@@ -93,10 +57,10 @@ object runNerf {
           lossSum = 0
         }
         if (idx % config.iImage == 0) {
-          val logWho = scala.util.Random.nextInt(renderDataSet.get(0).getShape.get(0).toInt)
-          print(s"${idx} iterators: log $logWho.\n")
+          val logWho = (idx / config.iImage - 1) % renderDataSet.get(0).getShape.get(0)
+          print(s"${idx} iterators: log image is NO.${logWho}.\n")
           val index = new NDIndex().addSliceDim(logWho, logWho + 1)
-          val logOne = new NDList(renderDataSet.get(0).get(index), renderDataSet.get(1).get(index), renderDataSet.get(2).get(index), renderDataSet.get(3).get(index))
+          val logOne = new NDList(renderDataSet.get(0).get(index), renderDataSet.get(1).get(index), renderDataSet.get(2).get(index))
           val image = renderToImage(logOne, model, manager)
           logOne.close()
           val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)
@@ -134,9 +98,9 @@ object runNerf {
         }
         if (idx % config.iVideo == 0) {
           print(s"${idx} iterators: log video.\n")
+          val images = renderToImage(renderDataSet, model, manager)
           val path = Paths.get(videoLogPaths.toString, s"$idx")
           Files.createDirectories(path)
-          val images = renderToImage(renderDataSet, model, manager)
           for (i <- images.indices) {
             val os = new FileOutputStream(Paths.get(path.toString, s"$i.png").toString)
             images(i).save(os, "png")
@@ -150,8 +114,9 @@ object runNerf {
         }
       }
     }
-
+    printf("Train over.\n")
     logPs.close()
+    manager.close()
   }
 
   def renderToImage(input: NDList, model: nerf, manager: NDManager): Array[Image] = {
@@ -180,6 +145,79 @@ object runNerf {
   }
 
   def main(args: Array[String]): Unit = {
-    train()
+    val config1 = nerfConfig(
+      device = Device.gpu(1),
+      dataSetType = "llff",
+      factor = 8,
+      llffHold = 8,
+      useDir = true,
+      useSH = true,
+      useTime = false,
+      useFourier = false,
+      fourierL = 5,
+      useHierarchical = true,
+      posL = 20,
+      timeL = 10,
+      dirL = 4,
+      D = 8,
+      W = 256,
+      skips = Array(4),
+      NSamples = 64,
+      NImportance = 64,
+      rawNoiseStd = 1e0,
+      whiteBkgd = false,
+      linDisp = false,
+      perturb = false,
+      ndc = true,
+      batchNum = 1024,
+      lrate = 5e-4,
+      lrateDecay = 500,
+      dataDir = "./data/nerf_llff_data/fern",
+      logDir = "./SHlogs",
+      iPrint = 100,
+      iImage = 500,
+      iWeight = 10000,
+      iTestSet = 50000,
+      iVideo = 50000,
+      NIter = 500000)
+
+    val config2 = nerfConfig(
+      device = Device.gpu(1),
+      dataSetType = "llff",
+      factor = 8,
+      llffHold = 8,
+      useDir = true,
+      useSH = false,
+      useTime = false,
+      useFourier = false,
+      fourierL = 5,
+      useHierarchical = true,
+      posL = 10,
+      timeL = 10,
+      dirL = 4,
+      D = 8,
+      W = 256,
+      skips = Array(4),
+      NSamples = 64,
+      NImportance = 64,
+      rawNoiseStd = 1e0,
+      whiteBkgd = false,
+      linDisp = false,
+      perturb = false,
+      ndc = true,
+      batchNum = 1024,
+      lrate = 5e-4,
+      lrateDecay = 250,
+      dataDir = "./data/nerf_llff_data/fern",
+      logDir = "./NSHlogs",
+      iPrint = 100,
+      iImage = 500,
+      iWeight = 10000,
+      iTestSet = 50000,
+      iVideo = 50000,
+      NIter = 500000)
+
+    //train(config2)
+    train(config1)
   }
 }

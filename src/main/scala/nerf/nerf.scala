@@ -4,11 +4,16 @@ import ai.djl.engine._
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._
 import ai.djl.ndarray.types._
+import ai.djl.nn.{AbstractBlock, Block, BlockList, Parameter, ParameterList}
+import ai.djl.training.ParameterStore
+import ai.djl.training.initializer.Initializer
 import ai.djl.training.loss._
+import ai.djl.util.PairList
 
 import java.io.{DataInputStream, DataOutputStream}
+import java.util.function.Predicate
 
-class nerf(config: nerfConfig, manager: NDManager) {
+class nerf(config: nerfConfig, manager: NDManager){
 
   val loss = Loss.l2Loss("L2Loss", 1)
   val coarseBlock = if (config.useHierarchical) new nerfModel(config, true).initialize(manager) else null
@@ -32,8 +37,8 @@ class nerf(config: nerfConfig, manager: NDManager) {
     lossValue.getFloat()
   }
 
-  val forward = if (config.NImportance == 0) forwardWithoutCoarse _ else forwardWithCoarse _
-  val lossCalculate = if (config.NImportance == 0) (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(fine)) else (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(coarse)).add(loss.evaluate(new NDList(label), new NDList(fine)))
+  val forward = if (config.useHierarchical) forwardWithCoarse _ else forwardWithoutCoarse _
+  val lossCalculate = if (config.useHierarchical) (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(coarse)).add(loss.evaluate(new NDList(label), new NDList(fine))) else (coarse: NDArray, fine: NDArray, label: NDArray) => loss.evaluate(new NDList(label), new NDList(fine))
 
   def forwardWithCoarse(raysO: NDArray, raysD: NDArray, time: NDArray, bounds: NDArray, viewdir: NDArray, training: Boolean): (NDArray, NDArray) = {
     //输入在getInput中有详细介绍
@@ -82,12 +87,12 @@ class nerf(config: nerfConfig, manager: NDManager) {
 
   def getWeight(d: NDArray, zVals: NDArray): NDArray = {
     //将网络输出的密度计算成权重
-    //d：尺寸(NSamples ( + NImportance), batchNum, 1)
+    //d：尺寸(NSamples ( + NImportance) - 1, batchNum, 1)
     //zVals：尺寸(NSamples ( + NImportance), batchNum, 1)
     val dists = zVals.get("1:").sub(zVals.get(":-1"))
     //raysD归一化过，dists此时已经是真实世界的距离
-    var alpha = addNoise(d.get(":-1")).getNDArrayInternal.relu().neg().mul(dists)
-    val T = alpha.cumSum(1).exp()
+    var alpha = addNoise(d).getNDArrayInternal.relu().neg().mul(dists)
+    val T = alpha.cumSum(0).exp()
     //最前面是1
     alpha = alpha.exp().sub(1).neg()
     val weight = alpha.get(":1").getNDArrayInternal.concat(new NDList(T.get(":-1").mul(alpha.get("1:")), T.get("-1:")), 0)
