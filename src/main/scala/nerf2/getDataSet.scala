@@ -1,10 +1,10 @@
-package nerf
+package nerf2
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.ndarray.types._
 import ai.djl.training.dataset._
-import llff._
+import nerf2.llff._
 
 object getDataSet {
 

@@ -4,41 +4,58 @@ import ai.djl.modality.cv.ImageFactory
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.training.ParameterStore
-import nerf._
+import nerf2._
 import _root_.nerf.llff._
+import ai.djl.ndarray.types.{DataType, Shape}
 
 import java.nio.file.{Files, Paths}
 
 object test {
   def main(args: Array[String]): Unit = {
     val manager = NDManager.newBaseManager(Device.cpu())
-    //    val config = nerfConfig(
-    //      device = Device.gpu(2),
-    //      posL = 10,
-    //      dirL = 4,
-    //      useSH = true,
-    //      useTime = false,
-    //      timeL = 0,
-    //      D = 8,
-    //      W = 256,
-    //      skips = Array(4),
-    //      rawNoiseStd = 1e0,
-    //      whiteBkgd = true,
-    //      linDisp = false,
-    //      NSamples = 64,
-    //      NImportance = 64,
-    //      perturb = false,
-    //      batchNum = 1024,
-    //      lrate = 5e-4,
-    //      lrateDecay = 250,
-    //      ndc = true,
-    //      datadir = "./data/nerf_llff_data/fern",
-    //      basedir = "./logs")
-    val array = manager.arange(2).reshape(2, 1)
-    val array2 = manager.arange(2)
-    print(array)
-    print(array2)
-    print(array.sub(array2))
+    val config = nerfConfig(
+      device = Device.gpu(2),
+      dataSetType = "llff",
+      factor = 8,
+      llffHold = 8,
+      useDir = true,
+      useTime = true,
+      useHierarchical = true,
+      postL = 10,
+      dirL = 4,
+      D = 8,
+      W = 256,
+      skips = Array(4),
+      NSamples = 64,
+      NImportance = 64,
+      rawNoiseStd = 1e0,
+      whiteBkgd = true,
+      linDisp = false,
+      perturb = false,
+      ndc = true,
+      batchNum = 1024,
+      lrate = 5e-4,
+      lrateDecay = 250,
+      dataDir = "./data/nerf_llff_data/fern",
+      logDir = "./logs",
+      iPrint = 100,
+      iImage = 500,
+      iWeight = 10000,
+      iTestSet = 50000,
+      iVideo = 50000,
+      NIter = 1000000)
+    val block = new nerfBlock(config)
+    block.initialize(manager, DataType.FLOAT32, new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3))
+    val a = 1
+    //    array.setRequiresGradient(true)
+    //    val collector = manager.getEngine.newGradientCollector()
+    //    val output1 = array1.mul(array)
+    //    collector.backward(output1)
+    //    subManager1.close()
+    //    val output2 = array2.mul(array)
+    //    collector.backward(output2)
+    //    subManager2.close()
+    //    collector.close()
     //    print(array.matMul(array2))
     //    print(array2.sub(array))
     //    array.setRequiresGradient(true)
