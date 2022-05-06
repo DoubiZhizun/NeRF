@@ -50,28 +50,42 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
   private var getRgbBlock: Block = null
 
   if (config.useDir) {
-    getRgbBlock = new SequentialBlock().add(
-      new ParallelBlock(
-        toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()))),
+    if (config.useSH) {
+      getRgbBlock = new ParallelBlock(
+        toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().reshape(Shape.update(t.get(0).get(0).getShape, t.get(0).get(0).getShape.dimension() - 1, 9).add(3)).mul(t.get(1).get(1).expandDims(-1)).sum(Array(-2)))),
         List[Block](
           new SequentialBlock()
             .add(toFunction((t: NDList) => new NDList(t.get(0))))
-            .add(Linear.builder().setUnits(config.W / 2).build()),
-          new SequentialBlock()
-            .add(toFunction((t: NDList) => new NDList(t.get(1))))
-            .add(Linear.builder().setUnits(config.W / 2).build())
+            .add(Linear.builder().setUnits(27).build()),
+          new LambdaBlock(toFunction((t: NDList) => t))
         ).asJava
       )
-    ).add(Linear.builder().setUnits(3).build())
-    //输入为256维特征和经过位置编码的dir，输出为rgb
+      //输入为W维特征和计算过球谐函数的dir，输出为rgb
+    } else {
+      getRgbBlock = new SequentialBlock().add(
+        new ParallelBlock(
+          toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()))),
+          List[Block](
+            new SequentialBlock()
+              .add(toFunction((t: NDList) => new NDList(t.get(0))))
+              .add(Linear.builder().setUnits(config.W / 2).build()),
+            new SequentialBlock()
+              .add(toFunction((t: NDList) => new NDList(t.get(1))))
+              .add(Linear.builder().setUnits(config.W / 2).build())
+          ).asJava
+        )
+      ).add(Linear.builder().setUnits(3).build())
+      //输入为W维特征和经过位置编码的dir，输出为rgb
+    }
   } else {
     getRgbBlock = Linear.builder().setUnits(3).build()
-    //输入为256维特征，输出为rgb
+    //输入为W维特征，输出为rgb
   }
 
   addChildBlock(getRgbBlock.getClass.getSimpleName, getRgbBlock)
 
-  private val inputFunction = if (config.useDir) (f: NDArray, dir: NDArray) => new NDList(f, positionCode(dir, config.dirL))
+  private val inputFunction = if (config.useDir) if (config.useSH) (f: NDArray, dir: NDArray) => new NDList(f, SH2(dir))
+  else (f: NDArray, dir: NDArray) => new NDList(f, positionCode(dir, config.dirL))
   else (f: NDArray, dir: NDArray) => new NDList(f)
   //getRgbBlock的输入函数
 
@@ -80,7 +94,11 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
     mlpBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.postL)))
     if (config.useDir) {
       val dirShape = inputShapes(1)
-      getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + 2 * config.dirL)))
+      if (config.useSH) {
+        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, 27))
+      } else {
+        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + 2 * config.dirL)))
+      }
     } else {
       getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W))
     }
@@ -115,5 +133,41 @@ object nerfCoreBlock {
       output.add(inputMulFactor.cos())
     }
     input.getNDArrayInternal.concat(output, -1)
+  }
+
+  private def SH2(viewdir: NDArray): NDArray = {
+    //二阶球谐函数
+    //viewdir是输入的方向视角，最高维大小为3，分别是x，y和z
+    //最高维经过归一化
+    val outputList = new NDList(9)
+
+    val x = viewdir.get("...,0")
+    val y = viewdir.get("...,1")
+    val z = viewdir.get("...,2")
+
+    val cosPhi = z
+    val sinPhi = z.square().sub(1).neg().sqrt()
+    //TODO：rsub更新以后做修改
+    val cosTheta = x.div(sinPhi)
+    val sinTheta = y.div(sinPhi)
+    val sinThetaCosPhi = sinTheta.mul(cosPhi)
+    val sinThetaSinPhi = sinTheta.mul(sinPhi)
+
+    //l=0
+    outputList.add(x.onesLike())
+    //l=1
+    outputList.add(cosTheta)
+    outputList.add(sinThetaCosPhi)
+    outputList.add(sinThetaSinPhi)
+    //l=2
+    outputList.add(cosTheta.square().sub(1.0 / 3))
+    outputList.add(sinThetaCosPhi.mul(cosTheta))
+    outputList.add(sinThetaSinPhi.mul(cosTheta))
+    outputList.add(sinThetaCosPhi.mul(cosPhi).mul(2).sub(sinTheta).mul(sinTheta))
+    //sinTheta * sinTheta * (2 * cosPhi * cosPhi - 1)
+    outputList.add(sinThetaSinPhi.mul(sinTheta).mul(cosPhi))
+    //sinTheta * sinTheta * sinPhi * cosPhi
+
+    NDArrays.stack(outputList, -1)
   }
 }

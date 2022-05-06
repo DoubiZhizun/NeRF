@@ -4,7 +4,7 @@ import ai.djl._
 import ai.djl.training._
 
 case class nerfConfig(
-                       device: Device, //训练用的设备
+                       device: Array[Device], //训练用的设备
 
                        dataSetType: String, //数据集类型，可选llff、blender和deepvoxels
 
@@ -14,6 +14,7 @@ case class nerfConfig(
 
                        //网络模型配置
                        useDir: Boolean, //是否使用方向参数
+                       useSH: Boolean, //是否使用球谐函数
                        useTime: Boolean, //是否使用时间参数
                        useHierarchical: Boolean, //是否使用分层体采样
 

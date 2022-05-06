@@ -44,10 +44,10 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     //weight：尺寸(NSamples ( + NImportance), batchNum, 1)，使用addBkgd(weight.mul(rgb.getNDArrayInternal.sigmoid()).sum(Array(0)), weight)即可得到输出
   }
 
-  val getSample = if (config.linDisp) (tVals: NDArray, near: NDArray, far: NDArray) => NDArrays.div(1, NDArrays.div(1, near).mul(tVals.sub(1).neg()).add(NDArrays.div(1, far).mul(tVals)))
+  private val getSample = if (config.linDisp) (tVals: NDArray, near: NDArray, far: NDArray) => NDArrays.div(1, NDArrays.div(1, near).mul(tVals.sub(1).neg()).add(NDArrays.div(1, far).mul(tVals)))
   else (tVals: NDArray, near: NDArray, far: NDArray) => near.mul(tVals.sub(1).neg()).add(far.mul(tVals))
 
-  val givePerturb = if (config.perturb) (zVals: NDArray) => {
+  private val givePerturb = if (config.perturb) (zVals: NDArray) => {
     val manager = zVals.getManager
     val mids = zVals.get("1:").add(zVals.get(":-1")).mul(.5)
     val upper = mids.concat(zVals.get("-1:"), 0)
@@ -56,7 +56,7 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     lower.add(upper.sub(lower).mul(tRand))
   } else (zVals: NDArray) => zVals
 
-  def getInput(raysO: NDArray, raysD: NDArray, bounds: NDArray): (NDArray, NDArray) = {
+  private def getInput(raysO: NDArray, raysD: NDArray, bounds: NDArray): (NDArray, NDArray) = {
     //为网络准备输入
     //输入在forwardWithCoarse中有介绍
     val manager = raysO.getManager
@@ -68,10 +68,10 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     //zVals：尺寸(NSamples, batchNum, 1)
   }
 
-  val givePerturbPDF = if (config.perturb) (cdf: NDArray) => cdf.getManager.randomUniform(0, 1, Shape.update(cdf.getShape, 0, config.NImportance), DataType.FLOAT32).sort(0)
+  private val givePerturbPDF = if (config.perturb) (cdf: NDArray) => cdf.getManager.randomUniform(0, 1, Shape.update(cdf.getShape, 0, config.NImportance), DataType.FLOAT32).sort(0)
   else (cdf: NDArray) => cdf.getManager.linspace(0, 1, config.NImportance).repeat(0, cdf.getShape.get(1)).reshape(Shape.update(cdf.getShape, 0, config.NImportance))
 
-  def samplePdf(weight: NDArray, zVals: NDArray, raysO: NDArray, raysD: NDArray): (NDArray, NDArray) = {
+  private def samplePdf(weight: NDArray, zVals: NDArray, raysO: NDArray, raysD: NDArray): (NDArray, NDArray) = {
     //weight：尺寸(NSamples, batchNum, 1)
     //zVals：尺寸(NSamples, batchNum, 1)
     //raysO：尺寸(batchNum, 3(4))
@@ -105,7 +105,7 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     //samples：尺寸(batchNum, NSamples + NImportance, 1)
   }
 
-  def forwardWithCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
+  private def forwardWithCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
     val (coarsePos, coarseZVals) = getInput(inputs.get(0), inputs.get(1), inputs.get(2))
     val coarseOutput = coarseBlock.forward(parameterStore, new NDList(coarsePos, inputs.get(3)), training, null)
     val coarseWeight = getWeight(coarseOutput.get(0), coarseZVals, training)
@@ -117,7 +117,7 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     new NDList(fineRgbOut, coarseRgbOut)
   }
 
-  def forwardWithoutCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
+  private def forwardWithoutCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
     val (finePos, fineZVals) = getInput(inputs.get(0), inputs.get(1), inputs.get(2))
     val fineOutput = fineBlock.forward(parameterStore, new NDList(finePos, inputs.get(3)), training, null)
     val fineWeight = getWeight(fineOutput.get(0), fineZVals, training)
@@ -126,7 +126,7 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     //no coarse
   }
 
-  val forwardFunction = if (config.useHierarchical) forwardWithCoarse _ else forwardWithoutCoarse _
+  private val forwardFunction = if (config.useHierarchical) forwardWithCoarse _ else forwardWithoutCoarse _
 
   override def initializeChildBlocks(manager: NDManager, dataType: DataType, inputShapes: Shape*): Unit = {
     if (config.useHierarchical) {
@@ -148,7 +148,7 @@ class nerfBlock(config: nerfConfig) extends AbstractBlock(VERSION) {
     //raysO：尺寸(batchNum, 3(4))
     //raysD：尺寸(batchNum, 3(4))
     //bounds：尺寸(batchNum, 2)
-    //viewdir：尺寸(batchNum, 3(4))
+    //viewDir：尺寸(batchNum, 3)
     forwardFunction(parameterStore, inputs, training)
     //输出：
     //fineRgbOut：细腻网络渲染结果，尺寸(batchNum, 3)
