@@ -9,7 +9,9 @@ import ai.djl.ndarray.types.{DataType, Shape}
 import ai.djl.ndarray.{NDArray, NDArrays, NDList, NDManager}
 import spray.json._
 
+import java.awt.image.BufferedImage
 import java.nio.file._
+import javax.imageio.ImageIO
 import scala.collection.mutable.ArrayBuffer
 
 object blender {
@@ -61,6 +63,48 @@ object blender {
     //矩阵乘法结合律
   }
 
+  def image2NDArray(image: BufferedImage, manager: NDManager): NDArray = {
+    //将image转换为NDArray
+    val width = image.getWidth
+    val height = image.getHeight
+    val channel = if (image.getType == BufferedImage.TYPE_BYTE_GRAY) 1
+    else if (image.getType == BufferedImage.TYPE_3BYTE_BGR) 3
+    else if (image.getType == BufferedImage.TYPE_4BYTE_ABGR || image.getType == BufferedImage.TYPE_4BYTE_ABGR_PRE) 4
+    else 0
+    require(channel != 0)
+    val bb = manager.allocateDirect(channel * height * width)
+    if (channel == 1) {
+      val data = new Array[Int](width * height)
+      image.getData.getPixels(0, 0, width, height, data)
+      for (gray <- data) {
+        bb.put(gray.toByte)
+      }
+    } else if (channel == 3) {
+      val pixels = image.getRGB(0, 0, width, height, null, 0, width)
+      for (rgb <- pixels) {
+        val red = (rgb >> 16) & 0xFF
+        val green = (rgb >> 8) & 0xFF
+        val blue = rgb & 0xFF
+        bb.put(red.toByte)
+        bb.put(green.toByte)
+        bb.put(blue.toByte)
+      }
+    } else {
+      val pixels = image.getRGB(0, 0, width, height, null, 0, width)
+      for (rgb <- pixels) {
+        val alpha = (rgb >> 24) & 0xFF
+        val red = (rgb >> 16) & 0xFF
+        val green = (rgb >> 8) & 0xFF
+        val blue = rgb & 0xFF
+        bb.put(red.toByte)
+        bb.put(green.toByte)
+        bb.put(blue.toByte)
+        bb.put(alpha.toByte)
+      }
+    }
+    manager.create(bb, new Shape(height, width, channel), DataType.UINT8)
+  }
+
   def loadBlenderData(dataDir: String, halfRes: Boolean = false, testSkip: Int = 1, manager: NDManager): (NDArray, NDArray, NDArray, Array[Float], Array[Int]) = {
     //dataDir：数据路径
     //halfRes：若为true，则将图片长宽变为原来的一半
@@ -79,10 +123,10 @@ object blender {
       val images = new NDList(indices.length)
       val poses = new NDList(indices.length)
       for (i <- indices) {
-        val image = ImageFactory.getInstance().fromFile(Paths.get(dataDir, meta.frames(i)._1 + ".png"))
+        val image = ImageIO.read(Paths.get(dataDir, meta.frames(i)._1 + ".png").toFile)
         H = image.getHeight
         W = image.getWidth
-        images.add((if (halfRes) NDImageUtils.resize(image.toNDArray(manager), W / 2, H / 2, Image.Interpolation.AREA) else image.toNDArray(manager)).toType(DataType.FLOAT32, false).div(255))
+        images.add((if (halfRes) NDImageUtils.resize(image2NDArray(image,manager), W / 2, H / 2, Image.Interpolation.AREA) else image2NDArray(image,manager)).toType(DataType.FLOAT32, false).div(255))
         poses.add(manager.create(meta.frames(i)._3).get(":3"))
       }
       allImages.addAll(images)

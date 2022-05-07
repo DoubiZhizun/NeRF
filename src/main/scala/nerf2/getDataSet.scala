@@ -52,8 +52,12 @@ object getDataSet {
 
       poses = poses2
       renderPoses = renderPoses2
-      images = images2
-      images = images2
+      images = if (config.whiteBkgd) {
+        val alpha = images.get("...,-1:")
+        images2.mul(alpha).add(images2.sub(1).neg())
+      } else {
+        images2.get("...,:3")
+      }
       hwf = hwf2
       near = subManager.create(2f)
       far = subManager.create(6f)
