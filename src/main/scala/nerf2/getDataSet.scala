@@ -154,6 +154,10 @@ object getDataSet {
     boundsTest.attach(manager)
     labelTest.attach(manager)
 
+    raysOVal.attach(manager)
+    raysDVal.attach(manager)
+    boundsVal.attach(manager)
+
     renderRaysO.attach(manager)
     renderRaysD.attach(manager)
     renderBounds.attach(manager)

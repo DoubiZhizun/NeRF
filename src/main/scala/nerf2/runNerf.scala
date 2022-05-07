@@ -22,8 +22,8 @@ object runNerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      device = Array(Device.gpu(0)),
-      dataSetType = "llff",
+      device = Array(Device.gpu(2)),
+      dataSetType = "blender",
       factor = 8,
       llffHold = 8,
       halfRes = true,
@@ -43,11 +43,11 @@ object runNerf {
       whiteBkgd = false,
       linDisp = false,
       perturb = false,
-      ndc = true,
+      ndc = false,
       batchNum = 1024,
       lrate = 5e-4,
-      lrateDecay = 500,
-      dataDir = "./data/nerf_llff_data/fern",
+      lrateDecay = 250,
+      dataDir = "./data/nerf_synthetic/lego",
       logDir = "./logs",
       iPrint = 100,
       iImage = 1000,
