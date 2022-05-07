@@ -22,10 +22,12 @@ object runNerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      device = Array(Device.gpu(2)),
+      device = Array(Device.gpu(0)),
       dataSetType = "llff",
       factor = 8,
       llffHold = 8,
+      halfRes = true,
+      testSkip = 8,
       useDir = true,
       useSH = true,
       useTime = false,
@@ -38,7 +40,7 @@ object runNerf {
       NSamples = 64,
       NImportance = 64,
       rawNoiseStd = 1e0,
-      whiteBkgd = true,
+      whiteBkgd = false,
       linDisp = false,
       perturb = false,
       ndc = true,
@@ -71,7 +73,7 @@ object runNerf {
     val calculateLoss = if (config.useHierarchical) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1))))
     else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, pred)
 
-    val (trainDataSet, testDataSet, renderDataSet) = getDataSet(config, manager)
+    val (trainDataSet, testDataSet, valDataSet, renderDataSet) = getDataSet(config, manager)
 
     val imageLogPaths = Paths.get(config.logDir, "imageLogs")
     val weightLogPaths = Paths.get(config.logDir, "weightLogs")
@@ -110,10 +112,10 @@ object runNerf {
           lossSum = 0
         }
         if (idx % config.iImage == 0) {
-          val logWho = (idx / config.iImage - 1) % renderDataSet.get(0).getShape.get(0)
-          print(s"${idx} iterators: log image is NO.${logWho}.\n")
+          val logWho = (idx / config.iImage - 1) % valDataSet.get(0).getShape.get(0)
+          print(s"${idx} iterators: log image.\n")
           val index = new NDIndex().addSliceDim(logWho, logWho + 1)
-          val logOne = new NDList(renderDataSet.get(0).get(index), renderDataSet.get(1).get(index), renderDataSet.get(2).get(index))
+          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index))
           val image = renderToImage(logOne, trainer, manager)
           logOne.close()
           val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)

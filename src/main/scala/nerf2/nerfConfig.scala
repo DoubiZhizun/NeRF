@@ -12,6 +12,10 @@ case class nerfConfig(
                        factor: Int, //llff数据集的下采样率
                        llffHold: Int, //llff数据集中每多少张图片选出一张作为测试集
 
+                       //blender数据及选项
+                       halfRes: Boolean, //是否将数据集长宽缩小一半
+                       testSkip: Int, //测试集跳跃
+
                        //网络模型配置
                        useDir: Boolean, //是否使用方向参数
                        useSH: Boolean, //是否使用球谐函数

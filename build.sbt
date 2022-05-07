@@ -22,3 +22,4 @@ scalacOptions ++= Seq(
 
 libraryDependencies += "com.github.scopt" % "scopt_2.11" % "latest.release"
 //libraryDependencies += "org.scala-lang.modules" %% "scala-parser-combinators" % "latest.release"
+libraryDependencies += "io.spray" %% "spray-json" % "latest.release"
