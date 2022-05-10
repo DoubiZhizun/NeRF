@@ -22,7 +22,7 @@ object runNerf {
   def train(): Unit = {
 
     val config = nerfConfig(
-      device = Array(Device.gpu(2)),
+      device = Array(Device.gpu(0)),
       dataSetType = "blender",
       factor = 8,
       llffHold = 8,
@@ -40,21 +40,21 @@ object runNerf {
       NSamples = 64,
       NImportance = 64,
       rawNoiseStd = 1e0,
-      whiteBkgd = false,
+      whiteBkgd = true,
       linDisp = false,
       perturb = false,
       ndc = false,
       batchNum = 1024,
       lrate = 5e-4,
       lrateDecay = 250,
-      dataDir = "./data/nerf_synthetic/lego",
-      logDir = "./logs",
+      dataDir = "./data/nerf_synthetic/chair",
+      logDir = "./logs/chairSH",
       iPrint = 100,
-      iImage = 1000,
-      iWeight = 100000,
-      iTestSet = 100000,
+      iImage = 500,
+      iWeight = 50000,
+      iTestSet = 50000,
       iVideo = 100000,
-      NIter = 1000000)
+      NIter = 500000)
 
     val manager = NDManager.newBaseManager(config.device.head)
 

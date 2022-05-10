@@ -64,7 +64,7 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
     } else {
       getRgbBlock = new SequentialBlock().add(
         new ParallelBlock(
-          toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()))),
+          toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()).getNDArrayInternal.relu())),
           List[Block](
             new SequentialBlock()
               .add(toFunction((t: NDList) => new NDList(t.get(0))))
@@ -147,14 +147,16 @@ object nerfCoreBlock {
 
     val cosPhi = z
     val sinPhi = z.square().sub(1).neg().sqrt()
+    val ones = x.onesLike()
+    val zeros = y.zerosLike()
     //TODO：rsub更新以后做修改
-    val cosTheta = x.div(sinPhi)
-    val sinTheta = y.div(sinPhi)
+    val cosTheta = NDArrays.where(sinPhi.lt(1e-5), ones, x.div(sinPhi))
+    val sinTheta = NDArrays.where(sinPhi.lt(1e-5), zeros, y.div(sinPhi))
     val sinThetaCosPhi = sinTheta.mul(cosPhi)
     val sinThetaSinPhi = sinTheta.mul(sinPhi)
 
     //l=0
-    outputList.add(x.onesLike())
+    outputList.add(ones)
     //l=1
     outputList.add(cosTheta)
     outputList.add(sinThetaCosPhi)

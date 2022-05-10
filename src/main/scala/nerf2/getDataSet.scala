@@ -53,8 +53,8 @@ object getDataSet {
       poses = poses2
       renderPoses = renderPoses2
       images = if (config.whiteBkgd) {
-        val alpha = images.get("...,-1:")
-        images2.mul(alpha).add(images2.sub(1).neg())
+        val alpha = images2.get("...,-1:")
+        images2.get("...,:3").mul(alpha).add(alpha.sub(1).neg())
       } else {
         images2.get("...,:3")
       }
