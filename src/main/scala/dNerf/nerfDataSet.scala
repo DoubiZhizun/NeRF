@@ -1,4 +1,4 @@
-package nerf2
+package dNerf
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._

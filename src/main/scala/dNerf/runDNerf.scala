@@ -1,4 +1,4 @@
-package nerf2
+package dNerf
 
 import ai.djl._
 import ai.djl.engine.Engine
@@ -17,23 +17,22 @@ import ai.djl.translate.Batchifier
 import java.io._
 import java.nio.file._
 
-object runNerf {
+object runDNerf {
 
   def train(): Unit = {
 
-    val config = nerfConfig(
+    val config = dNerfConfig(
       device = Array(Device.gpu(0)),
       dataSetType = "blender",
-      factor = 8,
-      llffHold = 8,
       halfRes = true,
       testSkip = 8,
       useDir = true,
       useSH = true,
-      useTime = false,
-      useHierarchical = true,
-      postL = 10,
+      useTime = true,
+      useHierarchical = false,
+      posL = 10,
       dirL = 4,
+      timeL = 10,
       D = 8,
       W = 256,
       skips = Array(4),
@@ -43,7 +42,6 @@ object runNerf {
       whiteBkgd = true,
       linDisp = false,
       perturb = false,
-      ndc = false,
       batchNum = 1024,
       lrate = 5e-4,
       lrateDecay = 250,
@@ -58,7 +56,7 @@ object runNerf {
 
     val manager = NDManager.newBaseManager(config.device.head)
 
-    val block = new nerfBlock(config)
+    val block = new dNerfBlock(config)
     val model = Model.newInstance("nerf")
     model.setBlock(block)
     val trainer = model.newTrainer(
@@ -68,7 +66,7 @@ object runNerf {
         .optDevices(config.device)
     )
 
-    trainer.initialize(new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3))
+    trainer.initialize(new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3), new Shape(config.batchNum, 1))
 
     val calculateLoss = if (config.useHierarchical) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1))))
     else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, pred)
@@ -97,8 +95,7 @@ object runNerf {
         val collector = manager.getEngine.newGradientCollector()
         for (s <- splits) {
           val inputs = s.getData
-          inputs.add(inputs.get(1))
-          val outputs = trainer.forward(inputs)
+          val outputs = trainer.forward(new NDList(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(1), inputs.get(3)))
           val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
           lossSum += lossValue.getFloat() / splits.length
           collector.backward(lossValue)
@@ -115,7 +112,7 @@ object runNerf {
           val logWho = (idx / config.iImage - 1) % valDataSet.get(0).getShape.get(0)
           print(s"${idx} iterators: log image.\n")
           val index = new NDIndex().addSliceDim(logWho, logWho + 1)
-          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index))
+          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index), valDataSet.get(3).get(logWho))
           val image = renderToImage(logOne, trainer, manager)
           logOne.close()
           val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)
@@ -141,8 +138,7 @@ object runNerf {
             val splits = next.split(trainer.getDevices, false)
             for (s <- splits) {
               val inputs = s.getData
-              inputs.add(inputs.get(1))
-              val outputs = trainer.forward(inputs)
+              val outputs = trainer.evaluate(new NDList(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(1), inputs.get(3)))
               val lossValue = trainer.getLoss.evaluate(s.getLabels, new NDList(outputs.get(0)))
               lossSumTest += lossValue.getFloat() / splits.length
               lossSumTotal += lossValue.getFloat() / splits.length
@@ -190,7 +186,8 @@ object runNerf {
         val rays_o = input.get(0).get(i, j)
         val rays_d = input.get(1).get(i, j)
         val bounds = input.get(2).get(i, j)
-        val netInput = new NDList(rays_o, rays_d, bounds, rays_d)
+        val times = input.get(3).get(i)
+        val netInput = new NDList(rays_o, rays_d, bounds, rays_d, times)
         netInput.attach(subManager)
         val outputImage = trainer.evaluate(netInput).get(0).mul(255).toType(DataType.UINT8, false)
         outputImage.attach(imageManager)
