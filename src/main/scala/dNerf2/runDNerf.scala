@@ -1,4 +1,4 @@
-package dNerf
+package dNerf2
 
 import ai.djl._
 import ai.djl.engine.Engine

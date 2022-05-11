@@ -86,23 +86,49 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
 
   private var timeBlock: SequentialBlock = null
 
+  private def blockWithTime: Block = {
+    new ParallelBlock(
+      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()).getNDArrayInternal.relu())),
+      List[Block](
+        new SequentialBlock()
+          .add(toFunction((t: NDList) => new NDList(t.get(0))))
+          .add(Linear.builder().setUnits(config.W).build()),
+        new SequentialBlock()
+          .add(toFunction((t: NDList) => new NDList(t.get(1))))
+          .add(Linear.builder().setUnits(config.W).build())
+      ).asJava
+    )
+  }
+
   if (config.useTime) {
     timeBlock = new SequentialBlock()
+    var withTime = true
     for (i <- 0 until config.D) {
-      timeBlock.add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
+      if (withTime) {
+        timeBlock.add(blockWithTime)
+        withTime = false
+      } else {
+        timeBlock.add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
+      }
       if (config.skips.contains(i)) {
-        new ParallelBlock(
-          toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().concat(t.get(1).singletonOrThrow(), -1))),
-          List[Block](
-            timeBlock,
-            new LambdaBlock(toFunction((t: NDList) => t))
-          ).asJava
+        timeBlock = new SequentialBlock().add(
+          new ParallelBlock(
+            toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().concat(t.get(1).get(0), -1), t.get(1).get(1))),
+            List[Block](
+              timeBlock,
+              new LambdaBlock(toFunction((t: NDList) => t))
+            ).asJava
+          )
         )
+        withTime = true
       }
     }
 
+    if (withTime) {
+      timeBlock.add(toFunction((t: NDList) => new NDList(t.get(0).concat(t.get(1).broadcast(Shape.update(t.get(0).getShape, t.get(0).getShape.dimension() - 1, t.get(1).getShape.getShape.last)), -1))))
+    }
+
     timeBlock = new SequentialBlock()
-      .add(toFunction((t: NDList) => new NDList(t.get(0).concat(t.get(1).broadcast(Shape.update(t.get(0).getShape, t.get(0).getShape.dimension() - 1, t.get(1).getShape.getShape.last))))))
       .add(timeBlock)
       .add(Linear.builder().setUnits(3).build())
 

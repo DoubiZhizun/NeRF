@@ -130,17 +130,9 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
 
   override def initializeChildBlocks(manager: NDManager, dataType: DataType, inputShapes: Shape*): Unit = {
     if (config.useHierarchical) {
-      if (config.useDir) {
-        coarseBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples).addAll(inputShapes(0)), inputShapes(3))
-      } else {
-        coarseBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples).addAll(inputShapes(0)))
-      }
+      coarseBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples).addAll(inputShapes(0)), if (config.useDir) inputShapes(3) else null, if (config.useTime) inputShapes(4) else null)
     }
-    if (config.useDir) {
-      fineBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples + config.NImportance).addAll(inputShapes(0)), inputShapes(3))
-    } else {
-      fineBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples + config.NImportance).addAll(inputShapes(0)))
-    }
+    fineBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples + config.NImportance).addAll(inputShapes(0)), if (config.useDir) inputShapes(3) else null, if (config.useTime) inputShapes(4) else null)
   }
 
   override def forwardInternal(parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]): NDList = {

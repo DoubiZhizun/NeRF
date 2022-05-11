@@ -1,4 +1,4 @@
-package dNerf
+package dNerf2
 
 //本文件中的函数用于处理blender数据集
 
