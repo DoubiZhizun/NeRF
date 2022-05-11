@@ -1,4 +1,4 @@
-package nerf2
+package nerf
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.types._
@@ -6,7 +6,7 @@ import ai.djl.nn._
 import ai.djl.nn.core._
 import ai.djl.training._
 import ai.djl.util._
-import nerf2.nerfCoreBlock._
+import nerf.nerfCoreBlock._
 
 import java.util
 import java.util.function.Function
@@ -43,7 +43,7 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
     )
   )
 
-  //mlpBlock是全连接模块，输入为经过位置编码的post，输出为d和W维特征
+  //mlpBlock是全连接模块，输入为经过位置编码的pos，输出为d和W维特征
 
   addChildBlock(mlpBlock.getClass.getSimpleName, mlpBlock)
 
@@ -91,7 +91,7 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
 
   override def initializeChildBlocks(manager: NDManager, dataType: DataType, inputShapes: Shape*): Unit = {
     val postShape = inputShapes(0)
-    mlpBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.postL)))
+    mlpBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.posL)))
     if (config.useDir) {
       val dirShape = inputShapes(1)
       if (config.useSH) {
@@ -105,7 +105,7 @@ final class nerfCoreBlock(config: nerfConfig, isCoarse: Boolean) extends Abstrac
   }
 
   override def forwardInternal(parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]): NDList = {
-    val mlpOutput = mlpBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.postL)), training, params)
+    val mlpOutput = mlpBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL)), training, params)
     val rgbOutput = if (isCoarse && !training) null else getRgbBlock.forward(parameterStore, inputFunction(mlpOutput.get(1), inputs.get(1)), training, params).singletonOrThrow()
     new NDList(mlpOutput.get(0), rgbOutput)
     //输出d和rgb
@@ -128,7 +128,7 @@ object nerfCoreBlock {
     //sin cos位置编码，L为编码阶数
     val output = new NDList(L * 2)
     for (i <- 0 until L) {
-      val inputMulFactor = input.mul(Math.PI * (1 << i))
+      val inputMulFactor = input.mul(1 << i) //原文貌似就没有PI？
       output.add(inputMulFactor.sin())
       output.add(inputMulFactor.cos())
     }

@@ -4,27 +4,27 @@ import ai.djl._
 import ai.djl.training._
 
 case class nerfConfig(
-                       device: Device, //训练用的设备
+                       device: Array[Device], //训练用的设备
 
-                       dataSetType: String, //数据集类型，可选llff、blender和deepvoxels
+                       dataSetType: String, //数据集类型，可选llff和blender
 
                        //llff数据集选项
                        factor: Int, //llff数据集的下采样率
                        llffHold: Int, //llff数据集中每多少张图片选出一张作为测试集
 
+                       //blender数据集选项
+                       halfRes: Boolean, //是否将数据集长宽缩小一半
+                       testSkip: Int, //测试集跳跃
+
                        //网络模型配置
                        useDir: Boolean, //是否使用方向参数
-                       useSH: Boolean, //如果使用方向参数，则该项表示是否使用球谐函数，球谐函数阶数固定2（9个系数）
-                       useTime: Boolean, //是否使用时间参数
-                       useFourier: Boolean, //如果使用时间参数，则该项表示是否使用傅里叶级数
-                       fourierL: Int, //如果使用傅里叶级数，则该项表示使用的傅里叶级数的阶数
+                       useSH: Boolean, //是否使用球谐函数
                        useHierarchical: Boolean, //是否使用分层体采样
 
-                       posL: Int, //点的位置编码阶数
-                       timeL: Int, //如果使用时间参数且不使用傅里叶级数，则该项表示时间的位置编码阶数
-                       dirL: Int, //如果使用方向参数且不适用球谐函数，则该项表示方向的位置编码阶数
+                       posL: Int, //点的的位置编码阶数
+                       dirL: Int, //如果使用方向参数，则该项表示方向的位置编码阶数
 
-                       D: Int, //网络每层宽度，>= 1
+                       D: Int, //网络每层宽度
                        W: Int, //网络层数（深度）
                        skips: Array[Int], //网络中再次输入的层
 

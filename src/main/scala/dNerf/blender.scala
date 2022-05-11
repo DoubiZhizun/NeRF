@@ -1,4 +1,4 @@
-package nerf2
+package dNerf
 
 //本文件中的函数用于处理blender数据集
 
@@ -16,18 +16,19 @@ import scala.collection.mutable.ArrayBuffer
 
 object blender {
 
-  case class jsonDataType(cameraAngleX: Float, frames: Array[(String, Float, Array[Array[Float]])])
+  case class jsonDataType(cameraAngleX: Float, frames: Array[(String, Float, Float, Array[Array[Float]])])
 
   implicit object reader extends JsonReader[jsonDataType] {
     override def read(json: JsValue): jsonDataType = {
       val jsObj = json.asJsObject.getFields("camera_angle_x", "frames")
       val cameraAngleX = jsObj.head.asInstanceOf[JsNumber].value.toFloat
-      val frames = new ArrayBuffer[(String, Float, Array[Array[Float]])]
+      val frames = new ArrayBuffer[(String, Float, Float, Array[Array[Float]])]
       val framesElements = jsObj.last.asInstanceOf[JsArray].elements
       for (frame <- framesElements) {
-        val frameObj = frame.asJsObject.getFields("file_path", "rotation", "transform_matrix")
+        val frameObj = frame.asJsObject.getFields("file_path", "rotation", "time", "transform_matrix")
         val filePath = frameObj.head.asInstanceOf[JsString].value
         val rotation = frameObj(1).asInstanceOf[JsNumber].value.toFloat
+        val time = frameObj(2).asInstanceOf[JsNumber].value.toFloat
         val transformMatrix = frameObj.last.asInstanceOf[JsArray].elements.map(e =>
           e.asInstanceOf[JsArray].elements.map(e2 =>
             e2.asInstanceOf[JsNumber].value.toFloat
@@ -107,7 +108,7 @@ object blender {
     manager.create(bb).reshape(new Shape(height, width, channel)).toType(DataType.UINT8, false)
   }
 
-  def loadBlenderData(dataDir: String, halfRes: Boolean = false, testSkip: Int = 1, manager: NDManager): (NDArray, NDArray, NDArray, Array[Float], Array[Int]) = {
+  def loadBlenderData(dataDir: String, halfRes: Boolean = false, testSkip: Int = 1, manager: NDManager): (NDArray, NDArray, NDArray, NDArray, NDArray, Array[Float], Array[Int]) = {
     //dataDir：数据路径
     //halfRes：若为true，则将图片长宽变为原来的一半
     //testSkip：测试集跳选
@@ -115,6 +116,7 @@ object blender {
     val metas = splits.map(s => JsonParser(Files.readAllBytes(Paths.get(dataDir, s"transforms_$s.json"))).convertTo)
     val allImages = new NDList()
     val allPoses = new NDList()
+    val allTimes = new NDList()
     var H: Int = 0
     var W: Int = 0
     val iSplit = Array(0, 0, 0)
@@ -124,15 +126,18 @@ object blender {
       val indices = 0 until(meta.frames.length, skip)
       val images = new NDList(indices.length)
       val poses = new NDList(indices.length)
+      val times = new NDList(indices.length)
       for (i <- indices) {
         val image = ImageIO.read(Paths.get(dataDir, meta.frames(i)._1 + ".png").toFile)
         H = image.getHeight
         W = image.getWidth
         images.add((if (halfRes) NDImageUtils.resize(image2NDArray(image, manager), W / 2, H / 2, Image.Interpolation.AREA) else image2NDArray(image, manager)).toType(DataType.FLOAT32, false).div(255))
-        poses.add(manager.create(meta.frames(i)._3).get(":3"))
+        poses.add(manager.create(meta.frames(i)._4).get(":3"))
+        times.add(manager.create(meta.frames(i)._3))
       }
       allImages.addAll(images)
       allPoses.addAll(poses)
+      allTimes.addAll(times)
       iSplit(i) = allImages.size()
     }
     if (halfRes) {
@@ -142,7 +147,9 @@ object blender {
     val focal =.5f * W / Math.tan(.5 * metas.head.cameraAngleX).toFloat
     val images = NDArrays.stack(allImages, 0)
     val poses = NDArrays.stack(allPoses, 0)
+    val times = NDArrays.stack(allTimes, 0)
     val renderPoses = NDArrays.stack(new NDList((0 until 40).map(i => getRenderPoses(2 * Math.PI.toFloat / 40 * i, Math.PI.toFloat / 6, 4, manager)).toArray: _*), 0)
-    (poses, renderPoses, images, Array(H, W, focal), iSplit)
+    val renderTimes = manager.linspace(0f, 1f, renderPoses.getShape.get(0).toInt)
+    (poses, times, renderPoses, renderTimes, images, Array(H, W, focal), iSplit)
   }
 }

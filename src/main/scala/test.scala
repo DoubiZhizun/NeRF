@@ -4,7 +4,7 @@ import ai.djl.modality.cv.ImageFactory
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.training.ParameterStore
-import nerf2._
+import nerf._
 import _root_.nerf.llff._
 import ai.djl.ndarray.types.{DataType, Shape}
 

@@ -3,6 +3,7 @@ package nerf
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._
 import ai.djl.training.dataset._
+import ai.djl.translate.Batchifier
 import ai.djl.util.Progress
 
 import java._
@@ -69,6 +70,6 @@ final class nerfDataSet(data: NDList, label: NDList, batchNum: Int) extends Data
     label.attach(subManager)
     now += batchNum
     idx += 1
-    new Batch(subManager, data, label, 1, null, null, idx - 1, totalNum)
+    new Batch(subManager, data, label, 1, Batchifier.STACK, Batchifier.STACK, idx - 1, totalNum)
   }
 }

@@ -2,34 +2,77 @@ package nerf
 
 import ai.djl._
 import ai.djl.engine.Engine
-import ai.djl.metric._
 import ai.djl.modality.cv._
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.ndarray.types._
+import ai.djl.nn.Block
 import ai.djl.training._
-import ai.djl.training.evaluator._
-import ai.djl.training.listener._
-import ai.djl.training.loss._
+import ai.djl.training.listener.TrainingListener
+import ai.djl.training.loss.Loss
 import ai.djl.training.optimizer._
 import ai.djl.training.tracker._
-import nerf.getDataSet._
+import ai.djl.translate.Batchifier
 
 import java.io._
 import java.nio.file._
 
 object runNerf {
 
-  def train(config: nerfConfig): Unit = {
+  def train(): Unit = {
 
-    val manager = NDManager.newBaseManager(config.device)
-    val adam = Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrateDecay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build()
-    config.ps = new ParameterStore(manager, false)
-    config.ps.setParameterServer(Engine.getInstance().newParameterServer(adam), Array(config.device))
+    val config = nerfConfig(
+      device = Array(Device.gpu(0)),
+      dataSetType = "blender",
+      factor = 8,
+      llffHold = 8,
+      halfRes = true,
+      testSkip = 8,
+      useDir = true,
+      useSH = true,
+      useHierarchical = true,
+      posL = 10,
+      dirL = 4,
+      D = 8,
+      W = 256,
+      skips = Array(4),
+      NSamples = 64,
+      NImportance = 64,
+      rawNoiseStd = 1e0,
+      whiteBkgd = true,
+      linDisp = false,
+      perturb = false,
+      ndc = false,
+      batchNum = 1024,
+      lrate = 5e-4,
+      lrateDecay = 250,
+      dataDir = "./data/nerf_synthetic/chair",
+      logDir = "./logs/chairSH",
+      iPrint = 100,
+      iImage = 500,
+      iWeight = 50000,
+      iTestSet = 50000,
+      iVideo = 100000,
+      NIter = 500000)
 
-    val model = new nerf(config, manager)
+    val manager = NDManager.newBaseManager(config.device.head)
 
-    val (trainDataSet, testDataSet, renderDataSet) = getDataSet(config, manager)
+    val block = new nerfBlock(config)
+    val model = Model.newInstance("nerf")
+    model.setBlock(block)
+    val trainer = model.newTrainer(
+      new DefaultTrainingConfig(Loss.l2Loss("L2Loss", 1))
+        .optOptimizer(Optimizer.adam().optLearningRateTracker(Tracker.factor().setBaseValue(config.lrate.toFloat).setFactor(Math.pow(0.1, 1.0 / (config.lrateDecay * 1000)).toFloat).build()).optBeta1(0.9f).optBeta2(0.999f).optEpsilon(1e-7f).build())
+        .addTrainingListeners(TrainingListener.Defaults.logging(): _*)
+        .optDevices(config.device)
+    )
+
+    trainer.initialize(new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3))
+
+    val calculateLoss = if (config.useHierarchical) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1))))
+    else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, pred)
+
+    val (trainDataSet, testDataSet, valDataSet, renderDataSet) = getDataSet(config, manager)
 
     val imageLogPaths = Paths.get(config.logDir, "imageLogs")
     val weightLogPaths = Paths.get(config.logDir, "weightLogs")
@@ -49,7 +92,18 @@ object runNerf {
       val trainIterator = trainDataSet.getData(manager).iterator()
       while (trainIterator.hasNext && !stop) {
         val next = trainIterator.next()
-        lossSum += model.train(next.getData.get(0), next.getData.get(1), null, next.getData.get(2), next.getData.get(1), next.getLabels.get(0))
+        val splits = next.split(trainer.getDevices, false)
+        val collector = manager.getEngine.newGradientCollector()
+        for (s <- splits) {
+          val inputs = s.getData
+          inputs.add(inputs.get(1))
+          val outputs = trainer.forward(inputs)
+          val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
+          lossSum += lossValue.getFloat() / splits.length
+          collector.backward(lossValue)
+        }
+        collector.close()
+        trainer.step()
         next.close()
         idx += 1
         if (idx % config.iPrint == 0) {
@@ -57,11 +111,11 @@ object runNerf {
           lossSum = 0
         }
         if (idx % config.iImage == 0) {
-          val logWho = (idx / config.iImage - 1) % renderDataSet.get(0).getShape.get(0)
-          print(s"${idx} iterators: log image is NO.${logWho}.\n")
+          val logWho = (idx / config.iImage - 1) % valDataSet.get(0).getShape.get(0)
+          print(s"${idx} iterators: log image.\n")
           val index = new NDIndex().addSliceDim(logWho, logWho + 1)
-          val logOne = new NDList(renderDataSet.get(0).get(index), renderDataSet.get(1).get(index), renderDataSet.get(2).get(index))
-          val image = renderToImage(logOne, model, manager)
+          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index))
+          val image = renderToImage(logOne, trainer, manager)
           logOne.close()
           val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)
           image(0).save(os, "png")
@@ -71,7 +125,7 @@ object runNerf {
         if (idx % config.iWeight == 0) {
           print(s"${idx} iterators: save weight.\n")
           val os = new DataOutputStream(new FileOutputStream(Paths.get(weightLogPaths.toString, s"$idx.npy").toString))
-          model.save(os)
+          block.saveParameters(os)
           os.close()
           print("Log over.\n")
         }
@@ -83,11 +137,16 @@ object runNerf {
           val testIterator = testDataSet.getData(manager).iterator()
           while (testIterator.hasNext) {
             val next = testIterator.next()
-            val output = model.predict(next.getData.get(0), next.getData.get(1), null, next.getData.get(2), next.getData.get(1))
-            val loss = model.loss.evaluate(new NDList(output), new NDList(next.getLabels.get(0))).getFloat()
+            val splits = next.split(trainer.getDevices, false)
+            for (s <- splits) {
+              val inputs = s.getData
+              inputs.add(inputs.get(1))
+              val outputs = trainer.forward(inputs)
+              val lossValue = trainer.getLoss.evaluate(s.getLabels, new NDList(outputs.get(0)))
+              lossSumTest += lossValue.getFloat() / splits.length
+              lossSumTotal += lossValue.getFloat() / splits.length
+            }
             next.close()
-            lossSumTest += loss
-            lossSumTotal += loss
             testIdx += 1
             if (testIdx % config.iPrint == 0) {
               print(s"${testIdx} iterators test: loss is ${lossSumTest / config.iPrint}.\n")
@@ -98,7 +157,7 @@ object runNerf {
         }
         if (idx % config.iVideo == 0) {
           print(s"${idx} iterators: log video.\n")
-          val images = renderToImage(renderDataSet, model, manager)
+          val images = renderToImage(renderDataSet, trainer, manager)
           val path = Paths.get(videoLogPaths.toString, s"$idx")
           Files.createDirectories(path)
           for (i <- images.indices) {
@@ -119,7 +178,7 @@ object runNerf {
     manager.close()
   }
 
-  def renderToImage(input: NDList, model: nerf, manager: NDManager): Array[Image] = {
+  def renderToImage(input: NDList, trainer: Trainer, manager: NDManager): Array[Image] = {
     //input内容为原点，方向和边界，都有四维，分别是图片数，图片宽，图片高和参数
     val output = new Array[Image](input.get(0).getShape.get(0).toInt)
     for (i <- 0 until input.get(0).getShape.get(0).toInt) {
@@ -132,7 +191,7 @@ object runNerf {
         val bounds = input.get(2).get(i, j)
         val netInput = new NDList(rays_o, rays_d, bounds, rays_d)
         netInput.attach(subManager)
-        val outputImage = model.predict(netInput.get(0), netInput.get(1), null, netInput.get(2), netInput.get(3)).mul(255).toType(DataType.UINT8, false)
+        val outputImage = trainer.evaluate(netInput).get(0).mul(255).toType(DataType.UINT8, false)
         outputImage.attach(imageManager)
         imageList.add(outputImage)
         subManager.close()
@@ -145,79 +204,6 @@ object runNerf {
   }
 
   def main(args: Array[String]): Unit = {
-    val config1 = nerfConfig(
-      device = Device.gpu(1),
-      dataSetType = "llff",
-      factor = 8,
-      llffHold = 8,
-      useDir = true,
-      useSH = true,
-      useTime = false,
-      useFourier = false,
-      fourierL = 5,
-      useHierarchical = true,
-      posL = 20,
-      timeL = 10,
-      dirL = 4,
-      D = 8,
-      W = 256,
-      skips = Array(4),
-      NSamples = 64,
-      NImportance = 64,
-      rawNoiseStd = 1e0,
-      whiteBkgd = false,
-      linDisp = false,
-      perturb = false,
-      ndc = true,
-      batchNum = 1024,
-      lrate = 5e-4,
-      lrateDecay = 500,
-      dataDir = "./data/nerf_llff_data/fern",
-      logDir = "./SHlogs",
-      iPrint = 100,
-      iImage = 500,
-      iWeight = 10000,
-      iTestSet = 50000,
-      iVideo = 50000,
-      NIter = 500000)
-
-    val config2 = nerfConfig(
-      device = Device.gpu(1),
-      dataSetType = "llff",
-      factor = 8,
-      llffHold = 8,
-      useDir = true,
-      useSH = false,
-      useTime = false,
-      useFourier = false,
-      fourierL = 5,
-      useHierarchical = true,
-      posL = 10,
-      timeL = 10,
-      dirL = 4,
-      D = 8,
-      W = 256,
-      skips = Array(4),
-      NSamples = 64,
-      NImportance = 64,
-      rawNoiseStd = 1e0,
-      whiteBkgd = false,
-      linDisp = false,
-      perturb = false,
-      ndc = true,
-      batchNum = 1024,
-      lrate = 5e-4,
-      lrateDecay = 250,
-      dataDir = "./data/nerf_llff_data/fern",
-      logDir = "./NSHlogs",
-      iPrint = 100,
-      iImage = 500,
-      iWeight = 10000,
-      iTestSet = 50000,
-      iVideo = 50000,
-      NIter = 500000)
-
-    //train(config2)
-    train(config1)
+    train()
   }
 }
