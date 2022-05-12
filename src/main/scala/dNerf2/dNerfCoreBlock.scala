@@ -37,7 +37,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
       List[Block](
         new SequentialBlock()
           .add(toFunction((t: NDList) => new NDList(t.singletonOrThrow().get(":-1"))))
-          .add(Linear.builder().setUnits(if (config.useTime) 1 + config.fourierL * 2 else 1).build()),
+          .add(Linear.builder().setUnits(if (config.useTime) 1 + config.fourierL else 1).build()),
         new LambdaBlock(toFunction((t: NDList) => t))
       ).asJava
     )
@@ -48,7 +48,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   addChildBlock(mlpBlock.getClass.getSimpleName, mlpBlock)
 
   private var getRgbBlock: Block = null
-  private val outputSize = if (config.useTime) 3 * (1 + 2 * config.fourierL) else 3
+  private val outputSize = if (config.useTime) 3 * (1 + config.fourierL) else 3
 
 
   if (config.useDir) {
@@ -97,7 +97,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   } else (alpha: NDArray, times: NDArray) => new NDList(alpha, times)
   //alpha输出函数
 
-  private val rgbOutput = if (config.useTime) (rgb: NDArray, fourierTimes: NDArray) => new NDList(rgb.reshape(Shape.update(rgb.getShape, rgb.getShape.dimension() - 1, 1 + 2 * config.fourierL).add(3)).mul(fourierTimes.expandDims(-1)).sum(Array(-2)))
+  private val rgbOutput = if (config.useTime) (rgb: NDArray, fourierTimes: NDArray) => new NDList(rgb.reshape(Shape.update(rgb.getShape, rgb.getShape.dimension() - 1, 1 + config.fourierL).add(3)).mul(fourierTimes.expandDims(-1)).sum(Array(-2)))
   else (rgb: NDArray, fourierTimes: NDArray) => new NDList(rgb)
   //rgb输出函数
 
@@ -109,7 +109,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
       if (config.useSH) {
         getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, 27))
       } else {
-        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + 2 * config.dirL)))
+        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + config.dirL)))
       }
     } else {
       getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W))
@@ -120,7 +120,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
     val mlpBlockOutput = mlpBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL)), training, params)
     val alphaTimes = alphaOutput(mlpBlockOutput.get(0), inputs.get(2))
     val rgbBlockOutput = if (isCoarse && !training) null else getRgbBlock.forward(parameterStore, inputFunction(mlpBlockOutput.get(1), inputs.get(1)), training, params).singletonOrThrow()
-    val rgb = rgbOutput(rgbBlockOutput, alphaTimes.get(1)).singletonOrThrow()
+    val rgb = if (isCoarse && !training) null else rgbOutput(rgbBlockOutput, alphaTimes.get(1)).singletonOrThrow()
     new NDList(alphaTimes.get(0), rgb)
     //输出d和rgb
   }
@@ -190,13 +190,11 @@ object dNerfCoreBlock {
   private def fourier(times: NDArray, L: Int): NDArray = {
     //傅里叶函数
     //times：0到1
-    val outputList = new NDList(1 + 2 * L)
+    val outputList = new NDList(1 + L)
     outputList.add(times.onesLike())
-    for (i <- 0 until L) {
-      val times2PiN = times.mul((i + 1) * Math.PI * 2)
-      outputList.add(times2PiN.sin())
-      outputList.add(times2PiN.cos())
+    for (i <- 1 to L) {
+      outputList.add(times.mul(i * Math.PI).cos())
     }
-    NDArrays.stack(outputList, -1)
+    NDArrays.concat(outputList, -1)
   }
 }

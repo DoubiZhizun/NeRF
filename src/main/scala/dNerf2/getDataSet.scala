@@ -4,7 +4,7 @@ import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.ndarray.types._
 import ai.djl.training.dataset._
-import dNerf.blender._
+import dNerf2.blender._
 
 object getDataSet {
 
@@ -56,22 +56,22 @@ object getDataSet {
     val raysOTrain = raysOFull.get(iSplit(0)).reshape(-1, 3)
     var raysDTrain = raysDFull.get(iSplit(0)).reshape(-1, 3)
     val labelTrain = images.get(iSplit(0)).reshape(-1, 3)
-    val timesTrain = times.get(iSplit(0)).repeat((hwf(0) * hwf(1)).toInt)
+    val timesTrain = times.get(iSplit(0)).reshape(-1, 1).repeat(0, (hwf(0) * hwf(1)).toInt)
     val raysDTrainNorm = raysDTrain.norm(Array(-1), true)
     raysDTrain = raysDTrain.div(raysDTrainNorm)
     val boundsTrain = raysDTrainNorm.mul(near).concat(raysDTrainNorm.mul(far), -1)
 
-    val raysOTest = raysOFull.get(iSplit(1)).reshape(-1, 3)
-    var raysDTest = raysDFull.get(iSplit(1)).reshape(-1, 3)
-    val labelTest = images.get(iSplit(1)).reshape(-1, 3)
-    val timesTest = times.get(iSplit(1)).repeat((hwf(0) * hwf(1)).toInt)
+    val raysOTest = raysOFull.get(iSplit(2)).reshape(-1, 3)
+    var raysDTest = raysDFull.get(iSplit(2)).reshape(-1, 3)
+    val labelTest = images.get(iSplit(2)).reshape(-1, 3)
+    val timesTest = times.get(iSplit(2)).reshape(-1, 1).repeat(0, (hwf(0) * hwf(1)).toInt)
     val raysDTestNorm = raysDTest.norm(Array(-1), true)
     raysDTest = raysDTest.div(raysDTestNorm)
     val boundsTest = raysDTestNorm.mul(near).concat(raysDTestNorm.mul(far), -1)
 
-    val raysOVal = raysOFull.get(iSplit(2))
-    var raysDVal = raysDFull.get(iSplit(2))
-    val timesVal = times.get(iSplit(2))
+    val raysOVal = raysOFull.get(iSplit(1))
+    var raysDVal = raysDFull.get(iSplit(1))
+    val timesVal = times.get(iSplit(1)).reshape(-1, 1)
     val raysDValNorm = raysDVal.norm(Array(-1), true)
     raysDVal = raysDVal.div(raysDValNorm)
     val boundsVal = raysDValNorm.mul(near).concat(raysDValNorm.mul(far), -1)
@@ -80,6 +80,7 @@ object getDataSet {
     val renderRaysDNorm = renderRaysD.norm(Array(-1), true)
     renderRaysD = renderRaysD.div(renderRaysDNorm)
     val renderBounds = renderRaysDNorm.mul(near).concat(renderRaysDNorm.mul(far), -1)
+    renderTimes = renderTimes.reshape(-1, 1)
 
     raysOTrain.attach(manager)
     raysDTrain.attach(manager)

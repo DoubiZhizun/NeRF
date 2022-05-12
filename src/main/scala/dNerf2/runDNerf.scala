@@ -25,16 +25,16 @@ object runDNerf {
       device = Array(Device.gpu(0)),
       dataSetType = "blender",
       halfRes = true,
-      testSkip = 8,
+      testSkip = 1,
       useDir = true,
       useSH = true,
       useTime = true,
       useHierarchical = false,
       posL = 10,
       dirL = 4,
-      fourierL = 4,
+      fourierL = 8,
       D = 8,
-      W = 256,
+      W = 512,
       skips = Array(4),
       NSamples = 64,
       NImportance = 64,
@@ -112,7 +112,7 @@ object runDNerf {
           val logWho = (idx / config.iImage - 1) % valDataSet.get(0).getShape.get(0)
           print(s"${idx} iterators: log image.\n")
           val index = new NDIndex().addSliceDim(logWho, logWho + 1)
-          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index), valDataSet.get(3).get(logWho))
+          val logOne = new NDList(valDataSet.get(0).get(index), valDataSet.get(1).get(index), valDataSet.get(2).get(index), valDataSet.get(3).get(index))
           val image = renderToImage(logOne, trainer, manager)
           logOne.close()
           val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)

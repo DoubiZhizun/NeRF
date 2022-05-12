@@ -132,7 +132,7 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
     if (config.useHierarchical) {
       coarseBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples).addAll(inputShapes(0)), if (config.useDir) inputShapes(3) else null, if (config.useTime) inputShapes(4) else null)
     }
-    fineBlock.initializeChildBlocks(manager, dataType, new Shape(config.NSamples + config.NImportance).addAll(inputShapes(0)), if (config.useDir) inputShapes(3) else null, if (config.useTime) inputShapes(4) else null)
+    fineBlock.initializeChildBlocks(manager, dataType, new Shape(if (config.useHierarchical) config.NSamples + config.NImportance else config.NSamples).addAll(inputShapes(0)), if (config.useDir) inputShapes(3) else null, if (config.useTime) inputShapes(4) else null)
   }
 
   override def forwardInternal(parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]): NDList = {
@@ -141,7 +141,7 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
     //raysD：尺寸(batchNum, 3(4))
     //bounds：尺寸(batchNum, 2)
     //viewDir：尺寸(batchNum, 3)
-    //time：尺寸(batchNum)或无尺寸
+    //time：尺寸(batchNum, 1)或(1)
     //没有的东西在位置填充null
     forwardFunction(parameterStore, inputs, training)
     //输出：
