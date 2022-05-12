@@ -32,7 +32,7 @@ object runDNerf {
       useHierarchical = false,
       posL = 10,
       dirL = 4,
-      timeL = 10,
+      fourierL = 10,
       D = 8,
       W = 256,
       skips = Array(4),

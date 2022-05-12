@@ -84,7 +84,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
 
   addChildBlock(getRgbBlock.getClass.getSimpleName, getRgbBlock)
 
-  private var timeBlock: Block = null
+  private var timeBlock: SequentialBlock = null
 
   //  private def blockWithTime: Block = {
   //    new ParallelBlock(
@@ -104,7 +104,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
     timeBlock = new SequentialBlock()
     //var withTime = true
     for (i <- 0 until config.D) {
-      timeBlock.asInstanceOf[SequentialBlock].add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
+      timeBlock.add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
       if (config.skips.contains(i)) {
         timeBlock = new SequentialBlock().add(
           new ParallelBlock(
@@ -118,22 +118,19 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
       }
     }
 
-    timeBlock = new SequentialBlock()
-      .add(toFunction((t: NDList) => new NDList(t.get(0))))
-      .add(timeBlock)
-      .add(Linear.builder().setUnits(3 * config.fourierL).build())
+    timeBlock.add(Linear.builder().setUnits(3 * config.fourierL).build())
 
-    timeBlock = new ParallelBlock(
-      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().reshape(Shape.update(t.get(0).get(0).getShape, t.get(0).get(0).getShape.dimension() - 1, config.fourierL).add(3)).mul(t.get(1).singletonOrThrow().expandDims(-1)).sum(Array(-2)))),
-      List[Block](
-        timeBlock,
-        new LambdaBlock(toFunction((t: NDList) => new NDList(fourier(t.get(1), config.fourierL))))
-      ).asJava
-    )
+    //    timeBlock = new ParallelBlock(
+    //      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().reshape(Shape.update(t.get(0).get(0).getShape, t.get(0).get(0).getShape.dimension() - 1, config.fourierL).add(3)).mul(t.get(1).singletonOrThrow().expandDims(-1)).sum(Array(-2)))),
+    //      List[Block](
+    //        timeBlock,
+    //        new LambdaBlock(toFunction((t: NDList) => new NDList(fourier(t.get(1), config.fourierL))))
+    //      ).asJava
+    //    )
 
     addChildBlock(timeBlock.getClass.getSimpleName, timeBlock)
 
-    //时间模块，输入点和时间，输出该点在该时间需要多少位移回到规范空间
+    //时间模块，输入点，输出该点在不同时间需要多少位移回到规范空间的函数的傅里叶级数系数
   }
 
   private val inputFunction = if (config.useDir) if (config.useSH) (f: NDArray, dir: NDArray) => new NDList(f, SH2(dir))
@@ -142,8 +139,13 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   //getRgbBlock的输入函数
 
   private val timeFunction = if (config.useTime) (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => {
-    val delta = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL), inputs.get(2)), training, params).singletonOrThrow()
-    new NDList(inputs.get(0).add(delta))
+    val deltaParameter = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL)), training, params).singletonOrThrow()
+    val timeFourier = fourier(inputs.get(2), config.fourierL)
+    val parameterReshape = deltaParameter.reshape(Shape.update(deltaParameter.getShape, deltaParameter.getShape.dimension() - 1, config.fourierL).add(3))
+    val delta = parameterReshape.mul(timeFourier.expandDims(-1)).sum(Array(-2))
+    val lossTimeFourier = if (training) fourier(inputs.get(3), config.fourierL) else null
+    val lossDelta = if (training) parameterReshape.mul(lossTimeFourier.expandDims(-1)).sum(Array(-2)) else null
+    new NDList(inputs.get(0).add(delta), lossDelta)
   } else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => inputs
   //时间处理函数
 
@@ -170,6 +172,9 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
     val timeOutput = timeFunction(parameterStore, inputs, training, params)
     val mlpOutput = mlpBlock.forward(parameterStore, new NDList(positionCode(timeOutput.get(0), config.posL)), training, params)
     val rgbOutput = if (isCoarse && !training) null else getRgbBlock.forward(parameterStore, inputFunction(mlpOutput.get(1), inputs.get(1)), training, params).singletonOrThrow()
+    if (training) {
+
+    }
     new NDList(mlpOutput.get(0), rgbOutput)
     //输出d和rgb
   }
