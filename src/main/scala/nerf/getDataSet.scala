@@ -63,8 +63,8 @@ object getDataSet {
       far = subManager.create(6f)
 
       iTrain = (0 until iSplit(0)).toArray
-      iTest = (iSplit(0) until iSplit(1)).toArray
-      iVal = (iSplit(1) until iSplit(2)).toArray
+      iVal = (iSplit(0) until iSplit(1)).toArray
+      iTest = (iSplit(1) until iSplit(2)).toArray
     } else {
       require(false, "数据集选择错误。\n")
     }

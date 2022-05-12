@@ -50,7 +50,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   private var getRgbBlock: Block = null
   private val timeOutputSize = if (config.useDir && config.useSH) 27 else 3
   //时间模块的输出尺寸
-  private val outputSize = timeOutputSize * (1 + config.fourierL)
+  private val outputSize = if (config.useTime) timeOutputSize * (1 + config.fourierL) else timeOutputSize
   //时间模块前一块的输出尺寸
 
   if (config.useDir) {
@@ -126,7 +126,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
       if (config.useSH) {
         getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, 27))
       } else {
-        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + config.dirL)))
+        getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W), Shape.update(dirShape, dirShape.dimension() - 1, dirShape.tail() * (1 + 2 * config.dirL)))
       }
     } else {
       getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W))
@@ -209,7 +209,8 @@ object dNerfCoreBlock {
     val outputList = new NDList(1 + L)
     outputList.add(times.onesLike())
     for (i <- 1 to L) {
-      outputList.add(times.mul(i * Math.PI).cos())
+      //outputList.add(times.mul(i * Math.PI).cos())
+      outputList.add(outputList.get(i - 1).mul(times))
     }
     NDArrays.concat(outputList, -1)
   }

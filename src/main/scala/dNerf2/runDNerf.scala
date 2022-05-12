@@ -32,7 +32,7 @@ object runDNerf {
       useHierarchical = false,
       posL = 10,
       dirL = 4,
-      fourierL = 8,
+      fourierL = 20,
       D = 8,
       W = 512,
       skips = Array(4),
@@ -176,7 +176,7 @@ object runDNerf {
   }
 
   def renderToImage(input: NDList, trainer: Trainer, manager: NDManager): Array[Image] = {
-    //input内容为原点，方向和边界，都有四维，分别是图片数，图片宽，图片高和参数
+    //input内容为原点，方向，边界和时间，都有四维，分别是图片数，图片宽，图片高和参数
     val output = new Array[Image](input.get(0).getShape.get(0).toInt)
     for (i <- 0 until input.get(0).getShape.get(0).toInt) {
       val imageManager = manager.newSubManager()
