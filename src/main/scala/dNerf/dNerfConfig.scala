@@ -20,7 +20,7 @@ case class dNerfConfig(
 
                         posL: Int, //点的的位置编码阶数
                         dirL: Int, //如果使用方向参数，则该项表示方向的位置编码阶数
-                        timeL: Int, //时间位置编码阶数
+                        fourierL: Int, //时间傅里叶变换阶数
 
                         D: Int, //网络每层宽度
                         W: Int, //网络层数（深度）

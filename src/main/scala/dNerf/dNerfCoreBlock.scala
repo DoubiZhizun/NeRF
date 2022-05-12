@@ -84,53 +84,52 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
 
   addChildBlock(getRgbBlock.getClass.getSimpleName, getRgbBlock)
 
-  private var timeBlock: SequentialBlock = null
+  private var timeBlock: Block = null
 
-  private def blockWithTime: Block = {
-    new ParallelBlock(
-      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()).getNDArrayInternal.relu())),
-      List[Block](
-        new SequentialBlock()
-          .add(toFunction((t: NDList) => new NDList(t.get(0))))
-          .add(Linear.builder().setUnits(config.W).build()),
-        new SequentialBlock()
-          .add(toFunction((t: NDList) => new NDList(t.get(1))))
-          .add(Linear.builder().setUnits(config.W).build())
-      ).asJava
-    )
-  }
+  //  private def blockWithTime: Block = {
+  //    new ParallelBlock(
+  //      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().add(t.get(1).singletonOrThrow()).getNDArrayInternal.relu())),
+  //      List[Block](
+  //        new SequentialBlock()
+  //          .add(toFunction((t: NDList) => new NDList(t.get(0))))
+  //          .add(Linear.builder().setUnits(config.W).build()),
+  //        new SequentialBlock()
+  //          .add(toFunction((t: NDList) => new NDList(t.get(1))))
+  //          .add(Linear.builder().setUnits(config.W).build())
+  //      ).asJava
+  //    )
+  //  }
 
   if (config.useTime) {
     timeBlock = new SequentialBlock()
-    var withTime = true
+    //var withTime = true
     for (i <- 0 until config.D) {
-      if (withTime) {
-        timeBlock.add(blockWithTime)
-        withTime = false
-      } else {
-        timeBlock.add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
-      }
+      timeBlock.asInstanceOf[SequentialBlock].add(Linear.builder().setUnits(config.W).build()).add(Activation.reluBlock())
       if (config.skips.contains(i)) {
         timeBlock = new SequentialBlock().add(
           new ParallelBlock(
-            toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().concat(t.get(1).get(0), -1), t.get(1).get(1))),
+            toFunction((t: util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().concat(t.get(1).get(0), -1))),
             List[Block](
               timeBlock,
               new LambdaBlock(toFunction((t: NDList) => t))
             ).asJava
           )
         )
-        withTime = true
       }
     }
 
-    if (withTime) {
-      timeBlock.add(toFunction((t: NDList) => new NDList(t.get(0).concat(t.get(1).broadcast(Shape.update(t.get(0).getShape, t.get(0).getShape.dimension() - 1, t.get(1).getShape.getShape.last)), -1))))
-    }
-
     timeBlock = new SequentialBlock()
+      .add(toFunction((t: NDList) => new NDList(t.get(0))))
       .add(timeBlock)
-      .add(Linear.builder().setUnits(3).build())
+      .add(Linear.builder().setUnits(3 * config.fourierL).build())
+
+    timeBlock = new ParallelBlock(
+      toFunction((t: java.util.List[NDList]) => new NDList(t.get(0).singletonOrThrow().reshape(Shape.update(t.get(0).get(0).getShape, t.get(0).get(0).getShape.dimension() - 1, config.fourierL).add(3)).mul(t.get(1).singletonOrThrow().expandDims(-1)).sum(Array(-2)))),
+      List[Block](
+        timeBlock,
+        new LambdaBlock(toFunction((t: NDList) => new NDList(fourier(t.get(1), config.fourierL))))
+      ).asJava
+    )
 
     addChildBlock(timeBlock.getClass.getSimpleName, timeBlock)
 
@@ -143,7 +142,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   //getRgbBlock的输入函数
 
   private val timeFunction = if (config.useTime) (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => {
-    val delta = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL), positionCode(inputs.get(2), config.timeL)), training, params).singletonOrThrow()
+    val delta = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL), inputs.get(2)), training, params).singletonOrThrow()
     new NDList(inputs.get(0).add(delta))
   } else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => inputs
   //时间处理函数
@@ -163,7 +162,7 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
     }
     if (config.useTime) {
       val timeShape = inputShapes(2)
-      timeBlock.initializeChildBlocks(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.posL)), Shape.update(timeShape, timeShape.dimension() - 1, timeShape.tail() * (1 + 2 * config.timeL)))
+      timeBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.posL)), timeShape)
     }
   }
 
@@ -237,5 +236,13 @@ object dNerfCoreBlock {
     NDArrays.stack(outputList, -1)
   }
 
-
+  private def fourier(times: NDArray, L: Int): NDArray = {
+    //傅里叶函数
+    //times：0到1
+    val outputList = new NDList(L)
+    for (i <- 1 to L) {
+      outputList.add(times.mul(i * Math.PI / 2).sin())
+    }
+    NDArrays.concat(outputList, -1)
+  }
 }
