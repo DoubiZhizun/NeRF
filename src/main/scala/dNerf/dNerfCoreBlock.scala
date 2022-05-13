@@ -138,15 +138,17 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
   else (f: NDArray, dir: NDArray) => new NDList(f)
   //getRgbBlock的输入函数
 
+  private val calculateTvLoss = if (config.addTvLoss) (parameterReshape: NDArray, timesFourier: NDArray, nearTimes: NDArray) => parameterReshape.mul(fourier(nearTimes, config.fourierL).sub(timesFourier).expandDims(-1)).sum(Array(-2))
+  else (parameterReshape: NDArray, timesFourier: NDArray, nearTimes: NDArray) => null
+
   private val timeFunction = if (config.useTime) (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => {
     val deltaParameter = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL)), training, params).singletonOrThrow()
-    val timeFourier = fourier(inputs.get(2), config.fourierL)
+    val timesFourier = fourier(inputs.get(2), config.fourierL)
     val parameterReshape = deltaParameter.reshape(Shape.update(deltaParameter.getShape, deltaParameter.getShape.dimension() - 1, config.fourierL).add(3))
-    val delta = parameterReshape.mul(timeFourier.expandDims(-1)).sum(Array(-2))
-    val lossTimeFourier = if (training) fourier(inputs.get(3), config.fourierL) else null
-    val lossDelta = if (training) parameterReshape.mul(lossTimeFourier.expandDims(-1)).sum(Array(-2)) else null
+    val delta = parameterReshape.mul(timesFourier.expandDims(-1)).sum(Array(-2))
+    val lossDelta = if (training) calculateTvLoss(parameterReshape, timesFourier, inputs.get(3)) else null
     new NDList(inputs.get(0).add(delta), lossDelta)
-  } else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => inputs
+  } else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => new NDList(inputs.get(0), null)
   //时间处理函数
 
   override def initializeChildBlocks(manager: NDManager, dataType: DataType, inputShapes: Shape*): Unit = {
@@ -163,25 +165,26 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
       getRgbBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, config.W))
     }
     if (config.useTime) {
-      val timeShape = inputShapes(2)
-      timeBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.posL)), timeShape)
+      timeBlock.initialize(manager, dataType, Shape.update(postShape, postShape.dimension() - 1, postShape.tail() * (1 + 2 * config.posL)))
     }
   }
 
   override def forwardInternal(parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]): NDList = {
+    //输入：
+    //get(0)：点
+    //get(1)：方向
+    //get(2)：时间，标量
+    //get(3)：如果training为true且使用时间的话，则该项为附近时间，标量
     val timeOutput = timeFunction(parameterStore, inputs, training, params)
     val mlpOutput = mlpBlock.forward(parameterStore, new NDList(positionCode(timeOutput.get(0), config.posL)), training, params)
     val rgbOutput = if (isCoarse && !training) null else getRgbBlock.forward(parameterStore, inputFunction(mlpOutput.get(1), inputs.get(1)), training, params).singletonOrThrow()
-    if (training) {
-
-    }
-    new NDList(mlpOutput.get(0), rgbOutput)
-    //输出d和rgb
+    new NDList(mlpOutput.get(0), rgbOutput, timeOutput.get(1))
+    //输出d、rgb和时间标量（如果training为true且使用时间的话，否则为null）
   }
 
   override def getOutputShapes(inputShapes: Array[Shape]): Array[Shape] = {
     val postShape = inputShapes(0)
-    Array(Shape.update(postShape, postShape.dimension() - 1, 1), Shape.update(postShape, postShape.dimension() - 1, 3))
+    Array(Shape.update(postShape, postShape.dimension() - 1, 1), Shape.update(postShape, postShape.dimension() - 1, 3), if (config.useTime) Shape.update(postShape, postShape.dimension() - 1, 3) else null)
   }
 }
 
@@ -243,11 +246,11 @@ object dNerfCoreBlock {
 
   private def fourier(times: NDArray, L: Int): NDArray = {
     //傅里叶函数
-    //times：0到1
+    //times：0到1，标量
     val outputList = new NDList(L)
     for (i <- 1 to L) {
       outputList.add(times.mul(i * Math.PI / 2).sin())
     }
-    NDArrays.concat(outputList, -1)
+    NDArrays.stack(outputList)
   }
 }

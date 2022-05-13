@@ -112,7 +112,7 @@ object blender {
     //dataDir：数据路径
     //halfRes：若为true，则将图片长宽变为原来的一半
     //testSkip：测试集跳选
-    val splits = Array("train", "val", "test")
+    val splits = Array("train", "test", "val")
     val metas = splits.map(s => JsonParser(Files.readAllBytes(Paths.get(dataDir, s"transforms_$s.json"))).convertTo)
     val allImages = new NDList()
     val allPoses = new NDList()

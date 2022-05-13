@@ -64,7 +64,7 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
     val zVals = givePerturb(getSample(tVals, bounds.get("...,0"), bounds.get("...,1"))).expandDims(-1)
     (raysO.add(raysD.mul(zVals)), zVals)
     //输出分别为：
-    //post：尺寸(NSamples, batchNum, 3(4))
+    //post：尺寸(NSamples, batchNum, 3)
     //zVals：尺寸(NSamples, batchNum, 1)
   }
 
@@ -74,8 +74,8 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
   private def samplePdf(weight: NDArray, zVals: NDArray, raysO: NDArray, raysD: NDArray): (NDArray, NDArray) = {
     //weight：尺寸(NSamples, batchNum, 1)
     //zVals：尺寸(NSamples, batchNum, 1)
-    //raysO：尺寸(batchNum, 3(4))
-    //raysD：尺寸(batchNum, 3(4))
+    //raysO：尺寸(3)
+    //raysD：尺寸(batchNum, 3)
 
     val manager = weight.getManager
     val weightCum = weight.stopGradient().get("1:-1").add(1e-5).cumSum(0)
@@ -101,28 +101,28 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
     val samples = binsG0.add(t.mul(binsG1.sub(binsG0))).concat(zVals, 0).sort(0)
 
     (raysO.add(raysD.mul(samples)), samples)
-    //post：尺寸(batchNum, NSamples + NImportance, 3(4))
+    //post：尺寸(batchNum, NSamples + NImportance, 3)
     //samples：尺寸(batchNum, NSamples + NImportance, 1)
   }
 
   private def forwardWithCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
     val (coarsePos, coarseZVals) = getInput(inputs.get(0), inputs.get(1), inputs.get(2))
-    val coarseOutput = coarseBlock.forward(parameterStore, new NDList(coarsePos, inputs.get(3), inputs.get(4)), training, null)
+    val coarseOutput = coarseBlock.forward(parameterStore, new NDList(coarsePos, inputs.get(3), inputs.get(4), inputs.get(5)), training, null)
     val coarseWeight = getWeight(coarseOutput.get(0), coarseZVals, training)
     val (finePos, fineZVals) = samplePdf(coarseWeight, coarseZVals, inputs.get(0), inputs.get(1))
-    val fineOutput = fineBlock.forward(parameterStore, new NDList(finePos, inputs.get(3), inputs.get(4)), training, null)
+    val fineOutput = fineBlock.forward(parameterStore, new NDList(finePos, inputs.get(3), inputs.get(4), inputs.get(5)), training, null)
     val fineWeight = getWeight(fineOutput.get(0), fineZVals, training)
     val fineRgbOut = addBkgd(fineWeight.mul(fineOutput.get(1).getNDArrayInternal.sigmoid()).sum(Array(0)), fineWeight)
     val coarseRgbOut = if (training) addBkgd(coarseWeight.mul(coarseOutput.get(1).getNDArrayInternal.sigmoid()).sum(Array(0)), coarseWeight) else null
-    new NDList(fineRgbOut, coarseRgbOut)
+    new NDList(fineRgbOut, coarseRgbOut, fineOutput.get(2), coarseOutput.get(2))
   }
 
   private def forwardWithoutCoarse(parameterStore: ParameterStore, inputs: NDList, training: Boolean): NDList = {
     val (finePos, fineZVals) = getInput(inputs.get(0), inputs.get(1), inputs.get(2))
-    val fineOutput = fineBlock.forward(parameterStore, new NDList(finePos, inputs.get(3), inputs.get(4)), training, null)
+    val fineOutput = fineBlock.forward(parameterStore, new NDList(finePos, inputs.get(3), inputs.get(4), inputs.get(5)), training, null)
     val fineWeight = getWeight(fineOutput.get(0), fineZVals, training)
     val fineRgbOut = addBkgd(fineWeight.mul(fineOutput.get(1).getNDArrayInternal.sigmoid()).sum(Array(0)), fineWeight)
-    new NDList(fineRgbOut)
+    new NDList(fineRgbOut, null, fineOutput.get(2), null)
     //no coarse
   }
 
@@ -137,17 +137,22 @@ class dNerfBlock(config: dNerfConfig) extends AbstractBlock(VERSION) {
 
   override def forwardInternal(parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]): NDList = {
     //输入内容：
-    //raysO：尺寸(batchNum, 3(4))
-    //raysD：尺寸(batchNum, 3(4))
+    //raysO：尺寸(3)
+    //raysD：尺寸(batchNum, 3)
     //bounds：尺寸(batchNum, 2)
     //viewDir：尺寸(batchNum, 3)
-    //time：尺寸(batchNum, 2)
+    //times：标量
+    //nearTimes：标量
     //没有的东西在位置填充null
     forwardFunction(parameterStore, inputs, training)
     //输出：
     //fineRgbOut：细腻网络渲染结果，尺寸(batchNum, 3)
     //coarseRgbOut：粗糙网络渲染结果，尺寸(batchNum, 3)
+    //fineLossDelta：细腻网络nearTime与times的delta，尺寸(NSamples, batchNum, 3)
+    //coarseLossDelta：粗糙网络nearTime与times的delta，尺寸(NSamples, batchNum, 3)
     //非训练模式或不使用层级模式下coarseRgbOut为null
+    //非训练模式下fineLossDelta和coarseLossDelta为null
+    //不适用层级模式下coarseLossDelta为null
   }
 
   override def getOutputShapes(inputShapes: Array[Shape]): Array[Shape] = {

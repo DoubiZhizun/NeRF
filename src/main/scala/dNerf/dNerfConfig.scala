@@ -34,14 +34,20 @@ case class dNerfConfig(
                         linDisp: Boolean, //若为true，则采样在视差下为线性，否则在深度下为线性
                         perturb: Boolean, //若为true，给采样加随机位移
 
+                        //训练设置
                         batchNum: Int, //训练每批光线数
 
                         lrate: Double, //学习率
                         lrateDecay: Int, //学习率衰减，每lrateDecay * 1000个训练周期衰减到原来的0.1倍
 
+                        addTvLoss: Boolean, //增加tv loss
+                        tvLossWeight: Double, //tv loss的权重
+
+                        //数据集设置
                         dataDir: String, //数据文件夹
                         logDir: String, //log文件夹
 
+                        //log设置
                         iPrint: Int, //多少次训练周期进行一次打印进度
                         iImage: Int, //多少次训练周期进行一次渲染留档
                         iWeight: Int, //多少次训练周期进行一次权重保存
