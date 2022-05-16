@@ -16,11 +16,13 @@ case class dNerfConfig(
                         useDir: Boolean, //是否使用方向参数
                         useSH: Boolean, //是否使用球谐函数
                         useTime: Boolean, //是否使用时间参数
+                        useFourier: Boolean, //是否使用傅里叶级数
                         useHierarchical: Boolean, //是否使用分层体采样
 
                         posL: Int, //点的的位置编码阶数
                         dirL: Int, //如果使用方向参数，则该项表示方向的位置编码阶数
-                        fourierL: Int, //时间傅里叶变换阶数
+                        timeL: Int, //如果不使用傅里叶级数，则该项表示时间的位置编码阶数
+                        fourierL: Int, //如果使用傅里叶级数，则该项表示时间傅里叶级数阶数
 
                         D: Int, //网络每层宽度
                         W: Int, //网络层数（深度）
@@ -40,9 +42,6 @@ case class dNerfConfig(
                         lrate: Double, //学习率
                         lrateDecay: Int, //学习率衰减，每lrateDecay * 1000个训练周期衰减到原来的0.1倍
 
-                        addTvLoss: Boolean, //增加tv loss
-                        tvLossWeight: Double, //tv loss的权重
-
                         //数据集设置
                         dataDir: String, //数据文件夹
                         logDir: String, //log文件夹
@@ -54,7 +53,8 @@ case class dNerfConfig(
                         iTestSet: Int, //多少次训练周期进行一次测试机测试
                         iVideo: Int, //多少次训练周期进行一次渲染视频
 
-                        NIter: Int //总训练周期数
+                        trainIter: Int, //总训练周期数
+                        testIter: Int //测试周期数
                       ) {
   var ps: ParameterStore = null
 }

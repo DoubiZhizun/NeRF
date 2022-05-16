@@ -24,31 +24,31 @@ object runDNerf {
   def train(): Unit = {
 
     val config = dNerfConfig(
-      device = Array(Device.gpu(0)),
+      device = Array(Device.gpu(2)),
       dataSetType = "blender",
       halfRes = true,
-      testSkip = 8,
+      testSkip = 1,
       useDir = true,
-      useSH = true,
+      useSH = false,
       useTime = true,
+      useFourier = false,
       useHierarchical = false,
       posL = 10,
       dirL = 4,
+      timeL = 10,
       fourierL = 10,
       D = 8,
       W = 256,
       skips = Array(4),
       NSamples = 64,
-      NImportance = 64,
+      NImportance = 128,
       rawNoiseStd = 1e0,
       whiteBkgd = true,
       linDisp = false,
       perturb = false,
       batchNum = 1024,
       lrate = 5e-4,
-      lrateDecay = 250,
-      addTvLoss = true,
-      tvLossWeight = 1e-4,
+      lrateDecay = 500,
       dataDir = "./data/dnerf_synthetic/lego",
       logDir = "./logs/lego_dSH",
       iPrint = 100,
@@ -56,7 +56,8 @@ object runDNerf {
       iWeight = 50000,
       iTestSet = 50000,
       iVideo = 100000,
-      NIter = 500000)
+      trainIter = 800000,
+      testIter = 1000)
 
     val manager = NDManager.newBaseManager(config.device.head)
 
@@ -70,12 +71,10 @@ object runDNerf {
         .optDevices(config.device)
     )
 
-    trainer.initialize(new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3), new Shape(config.batchNum, 1))
+    trainer.initialize(new Shape(config.batchNum, 3), new Shape(config.batchNum, 3), new Shape(config.batchNum, 2), new Shape(config.batchNum, 3), new Shape())
 
-    val calculateLoss = if (config.useHierarchical) if (config.useTime && config.addTvLoss) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1)))).add(pred.get(2).pow(2).sum().mul(config.tvLossWeight)).add(pred.get(3).pow(2).sum().mul(config.tvLossWeight))
-    else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1))))
-    else if (config.useTime && config.addTvLoss) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, pred).add(pred.get(2).pow(2).sum().mul(config.tvLossWeight))
-    else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, pred)
+    val calculateLoss = if (config.useHierarchical) (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0))).add(loss.evaluate(label, new NDList(pred.get(1))))
+    else (label: NDList, pred: NDList, loss: Loss) => loss.evaluate(label, new NDList(pred.get(0)))
 
     val (trainDataSet, testDataSet, valDataSet, renderDataSet) = getDataSet(config, manager)
 
@@ -91,89 +90,73 @@ object runDNerf {
 
     print("Train start.\n")
     var idx = 0
-    var stop = false
     var lossSum: Float = 0
-    var valIterator = valDataSet.getData(manager).iterator()
-    while (!stop) {
-      val trainIterator = trainDataSet.getData(manager).iterator()
-      while (trainIterator.hasNext && !stop) {
-        val next = trainIterator.next()
-        val splits = next.split(trainer.getDevices, false)
-        val collector = manager.getEngine.newGradientCollector()
-        for (s <- splits) {
-          val inputs = s.getData
-          val outputs = trainer.forward(new NDList(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(1), inputs.get(3), inputs.get(4)))
-          val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
-          lossSum += lossValue.getFloat() / splits.length
-          collector.backward(lossValue)
-        }
-        collector.close()
-        trainer.step()
-        next.close()
-        idx += 1
-        if (idx % config.iPrint == 0) {
-          print(s"${idx} iterators train: loss is ${lossSum / config.iPrint}.\n")
-          lossSum = 0
-        }
-        if (idx % config.iImage == 0) {
-          print(s"${idx} iterators: log image.\n")
-          if (!valIterator.hasNext) {
-            valIterator = valDataSet.getData(manager).iterator()
+    val trainIterator = trainDataSet.getData(manager).iterator()
+    val testIterator = testDataSet.getData(manager).iterator()
+    valDataSet.getData(manager)
+    renderDataSet.getData(manager)
+    for (_ <- 0 until config.trainIter) {
+      val next = trainIterator.next()
+      val splits = next.split(trainer.getDevices, false)
+      val collector = manager.getEngine.newGradientCollector()
+      for (s <- splits) {
+        val outputs = trainer.forward(s.getData)
+        val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
+        lossSum += lossValue.getFloat() / splits.length
+        collector.backward(lossValue)
+      }
+      collector.close()
+      trainer.step()
+      next.close()
+      idx += 1
+      if (idx % config.iPrint == 0) {
+        print(s"${idx} iterators train: loss is ${lossSum / config.iPrint}.\n")
+        lossSum = 0
+      }
+      if (idx % config.iImage == 0) {
+        print(s"${idx} iterators: log image.\n")
+        val image = renderOneImage(valDataSet, trainer, manager)
+        val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)
+        image.save(os, "png")
+        os.close()
+        print("Log over.\n")
+      }
+      if (idx % config.iWeight == 0) {
+        print(s"${idx} iterators: save weight.\n")
+        val os = new DataOutputStream(new FileOutputStream(Paths.get(weightLogPaths.toString, s"$idx.npy").toString))
+        block.saveParameters(os)
+        os.close()
+        print("Log over.\n")
+      }
+      if (idx % config.iTestSet == 0) {
+        print(s"${idx} iterators: start to test.\n")
+        var lossSumTotal: Float = 0
+        for (_ <- 0 until config.testIter) {
+          val next = testIterator.next()
+          val splits = next.split(trainer.getDevices, false)
+          for (s <- splits) {
+            val outputs = trainer.forward(s.getData)
+            val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
+            lossSumTotal += lossValue.getFloat() / splits.length
           }
-          val image = renderOneImage(valIterator, trainer, manager)
-          val os = new FileOutputStream(Paths.get(imageLogPaths.toString, s"$idx.png").toString)
-          image.save(os, "png")
+          next.close()
+        }
+        print(s"Test over, mean loss is ${lossSumTotal / config.testIter}.\n")
+      }
+      if (idx % config.iVideo == 0) {
+        print(s"${idx} iterators: log video.\n")
+        val images = renderImages(renderDataSet, trainer, manager)
+        val path = Paths.get(videoLogPaths.toString, s"$idx")
+        Files.createDirectories(path)
+        for (i <- images.indices) {
+          val os = new FileOutputStream(Paths.get(path.toString, s"$i.png").toString)
+          images(i).save(os, "png")
           os.close()
-          print("Log over.\n")
         }
-        if (idx % config.iWeight == 0) {
-          print(s"${idx} iterators: save weight.\n")
-          val os = new DataOutputStream(new FileOutputStream(Paths.get(weightLogPaths.toString, s"$idx.npy").toString))
-          block.saveParameters(os)
-          os.close()
-          print("Log over.\n")
-        }
-        if (idx % config.iTestSet == 0) {
-          print(s"${idx} iterators: start to test.\n")
-          var testIdx = 0
-          var lossSumTest: Float = 0
-          var lossSumTotal: Float = 0
-          val testIterator = testDataSet.getData(manager).iterator()
-          while (testIterator.hasNext) {
-            val next = testIterator.next()
-            val splits = next.split(trainer.getDevices, false)
-            for (s <- splits) {
-              val inputs = s.getData
-              val outputs = trainer.forward(new NDList(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(1), inputs.get(3), inputs.get(4)))
-              val lossValue = calculateLoss(s.getLabels, outputs, trainer.getLoss)
-              lossSumTest += lossValue.getFloat() / splits.length
-              lossSumTotal += lossValue.getFloat() / splits.length
-            }
-            next.close()
-            testIdx += 1
-            if (testIdx % config.iPrint == 0) {
-              print(s"${testIdx} iterators test: loss is ${lossSumTest / config.iPrint}.\n")
-              lossSumTest = 0
-            }
-          }
-          print(s"Test over, mean loss is ${lossSumTotal / testIdx}.\n")
-        }
-        if (idx % config.iVideo == 0) {
-          print(s"${idx} iterators: log video.\n")
-          val images = renderImages(renderDataSet.getData(manager).iterator(), trainer, manager)
-          val path = Paths.get(videoLogPaths.toString, s"$idx")
-          Files.createDirectories(path)
-          for (i <- images.indices) {
-            val os = new FileOutputStream(Paths.get(path.toString, s"$i.png").toString)
-            images(i).save(os, "png")
-            os.close()
-          }
-          print("Log over.\n")
-        }
-        if (idx % config.NIter == 0) {
-          print(s"${idx} iterators: train over.\n")
-          stop = true
-        }
+        print("Log over.\n")
+      }
+      if (idx % config.trainIter == 0) {
+        print(s"${idx} iterators: train over.\n")
       }
     }
     printf("Train over.\n")
@@ -181,32 +164,27 @@ object runDNerf {
     manager.close()
   }
 
-  def renderImages(dataIterator: java.util.Iterator[Batch], trainer: Trainer, manager: NDManager): Array[Image] = {
-    val buffer = new ArrayBuffer[Image]
-    while (dataIterator.hasNext) {
-      buffer.append(renderOneImage(dataIterator, trainer, manager))
+  def renderImages(dataSet: dNerfRenderSet, trainer: Trainer, manager: NDManager): Array[Image] = {
+    val buffer = new Array[Image](dataSet.getPoseNum)
+    dataSet.setPoseIdx(0)
+    for (i <- 0 until dataSet.getPoseNum) {
+      buffer(i) = renderOneImage(dataSet, trainer, manager)
     }
-    buffer.toArray
+    buffer
   }
 
-  def renderOneImage(dataIterator: java.util.Iterator[Batch], trainer: Trainer, manager: NDManager): Image = {
-    var output: NDList = null
-    var notDone = true
+  def renderOneImage(dataSet: dNerfRenderSet, trainer: Trainer, manager: NDManager): Image = {
+    val output: NDList = new NDList(dataSet.getNumOfBatch)
     val subManager = manager.newSubManager()
-    do {
-      val next = dataIterator.next()
-      if (next.getProgress == 0) {
-        output = new NDList(next.getProgressTotal.toInt)
-      }
-      val inputs = next.getData
-      val evaluate = trainer.evaluate(new NDList(inputs.get(0), inputs.get(1), inputs.get(2), inputs.get(1), inputs.get(3), null)).get(0)
-      evaluate.attach(subManager)
-      output.add(evaluate)
+    val iterator = dataSet.getData(manager).iterator()
+
+    while (iterator.hasNext) {
+      val next = iterator.next()
+      val pred = trainer.evaluate(next.getData).get(0).mul(255).toType(DataType.UINT8, false)
+      pred.attach(subManager)
+      output.add(pred)
       next.close()
-      if (next.getProgress >= next.getProgressTotal - 1) {
-        notDone = false
-      }
-    } while (notDone)
+    }
 
     val image = ImageFactory.getInstance().fromNDArray(NDArrays.stack(output, 0))
     subManager.close()

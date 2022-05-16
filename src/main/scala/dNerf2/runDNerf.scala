@@ -28,7 +28,7 @@ object runDNerf {
       testSkip = 1,
       useDir = true,
       useSH = true,
-      useTime = true,
+      useTime = false,
       useHierarchical = false,
       posL = 10,
       dirL = 4,

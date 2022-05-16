@@ -2,142 +2,85 @@ package dNerf
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._
-import ai.djl.ndarray.types.DataType
 import ai.djl.training.dataset._
 import ai.djl.translate.Batchifier
 import ai.djl.util.Progress
-import dNerf.dNerfDataSet.getRaysNp
+import dNerf.getDataSet._
 
 import java._
 
-final class dNerfDataSet(poses: NDArray, times: NDArray, hwf: Array[Float], isRender: Boolean, images: NDArray = null, batchNum: Int = 0) extends Dataset with java.lang.Iterable[Batch] with java.util.Iterator[Batch] {
-  //isRender位true是代表该数据集为渲染集
-  //渲染集不提供image、每个batch提供图像的一列，且不会随机打乱
+final class dNerfDataSet(poses: NDArray, times: NDArray, hwf: Array[Float], images: NDArray, batchNum: Int) extends Dataset with java.lang.Iterable[Batch] with java.util.Iterator[Batch] {
 
-  var manager: NDManager = null
+  private var manager: NDManager = null
+  private var dirs: NDArray = null
 
-  val poseNum = poses.getShape.get(0).toInt
-  var poseIdx = 0
-  var poseIdxNear = if (isRender) null else new Array[Int](2)
+  private val poseNum = poses.getShape.get(0).toInt
+  private val pixelSize = (hwf(0) * hwf(1)).toInt
 
-  val pixelSize = (hwf(0) * hwf(1)).toInt
-  var pixelIdx = 0
+  private var imagesHere: NDList = null
 
-  val pixelStep = if (isRender) hwf(1).toInt else batchNum
+  require(pixelSize >= batchNum)
 
-  val numOfBatch = if (isRender) hwf(0).toInt else Math.ceil(pixelSize.toDouble / batchNum).toInt
-  var batchIdx = 0
-
-  var managerNow: NDManager = null
-  var dataNow: NDList = null
-  var imageNow: NDArray = null
-
-  private def newPixels(): Unit = {
-    managerNow = manager.newSubManager()
-
-    val managerTemp = manager.newSubManager()
-    val posesNow = poses.get(poseIdx)
-    val timesNow = times.get(poseIdx)
-    new NDList(posesNow, timesNow).attach(managerTemp)
-    var (raysONow, raysDNow) = getRaysNp(hwf(0).toInt, hwf(1).toInt, hwf(2), posesNow)
-    val raysDNowNorm = raysDNow.norm(Array(-1), true)
-    raysDNow = raysDNow.div(raysDNowNorm)
-    var boundsNow = raysDNowNorm.mul(.2).concat(raysDNowNorm.mul(.6), -1)
-    //得到raysD、bounds和times
-
-    if (!isRender) {
-      //如果不是渲染，则需要打乱
-      imageNow = images.get(poseIdx)
-      new NDList(imageNow).attach(managerTemp)
-      imageNow = imageNow.reshape(-1, 3)
-
-      val list = (0 until pixelSize).toArray
-      for (i <- 0 until pixelSize) {
-        val j = scala.util.Random.nextInt(pixelSize)
-        val temp = list(j)
-        list(j) = list(i)
-        list(i) = temp
-      }
-      val ndArrayList = managerTemp.create(list).expandDims(-1)
-
-      //打乱
-      raysDNow = raysDNow.get(new NDIndex().addPickDim(ndArrayList.broadcast(raysDNow.getShape)))
-      boundsNow = boundsNow.get(new NDIndex().addPickDim(ndArrayList.broadcast(boundsNow.getShape)))
-      imageNow = imageNow.get(new NDIndex().addPickDim(ndArrayList.broadcast(imageNow.getShape)))
-
-      new NDList(imageNow).attach(managerNow)
-
-      poseIdxNear(0) = if (poseIdx > 0) poseIdx - 1 else 1
-      poseIdxNear(1) = if (poseIdx < poseNum - 1) poseIdx + 1 else poseNum - 2
-    }
-    dataNow = new NDList(raysONow, raysDNow, boundsNow, timesNow)
-    dataNow.attach(managerNow)
-    managerTemp.close()
-    poseIdx += 1
-    pixelIdx = 0
-    batchIdx = 0
-  }
-
+  private val idx = (0 until pixelSize).toArray
 
   override def getData(manager: NDManager): lang.Iterable[Batch] = {
-    this.manager = manager
+    if (this.manager != null) {
+      this.manager.close()
+    }
+    this.manager = manager.newSubManager()
+    val dirs = getRaysDirs(hwf(0).toInt, hwf(1).toInt, hwf(2), this.manager)
+    this.dirs = dirs.reshape(-1, 3)
+    dirs.close()
+    imagesHere = new NDList(poseNum)
+    for (i <- 0 until poseNum) {
+      val image = images.get(i)
+      imagesHere.add(image.reshape(-1, 3))
+      image.close()
+    }
+    imagesHere.attach(this.manager)
     this
   }
 
   override def prepare(progress: Progress): Unit = {}
 
-  override def iterator(): util.Iterator[Batch] = {
-    poseIdx = 0
-    this
-  }
+  override def iterator(): util.Iterator[Batch] = this
 
-  override def hasNext: Boolean = !(poseIdx >= poseNum && batchIdx >= numOfBatch)
+  override def hasNext: Boolean = true
 
   override def next(): Batch = {
-    if (managerNow == null) {
-      newPixels()
-    }
     val subManager = manager.newSubManager()
-    val data = new NDList(5)
-    val label = new NDList(1)
 
-    val index = if (pixelIdx + pixelStep <= pixelSize) new NDIndex().addSliceDim(pixelIdx, pixelIdx + pixelStep) else new NDIndex().addSliceDim(pixelIdx, pixelSize)
-    data.add(dataNow.get(0).get(":"))
-    data.add(dataNow.get(1).get(index))
-    data.add(dataNow.get(2).get(index))
-    data.add(dataNow.get(3).get(":"))
-
-    if (!isRender) {
-      data.add(times.get(poseIdxNear(scala.util.Random.nextInt(2))))
-      label.add(imageNow.get(index))
+    for (i <- 0 until batchNum) {
+      //打乱顺序
+      val j = scala.util.Random.nextInt(pixelSize)
+      val temp = idx(i)
+      idx(i) = idx(j)
+      idx(j) = temp
     }
+    val indexArray = subManager.create(idx.slice(0, batchNum)).expandDims(-1).repeat(1, 3)
 
-    data.attach(subManager)
-    label.attach(subManager)
+    val index = new NDIndex().addPickDim(indexArray)
 
-    batchIdx += 1
-    if (batchIdx >= numOfBatch) {
-      managerNow.close()
-      managerNow = null
-    } else {
-      pixelIdx += pixelStep
-    }
+    val poseIdx = scala.util.Random.nextInt(poseNum)
+    val poseNow = poses.get(poseIdx)
+    poseNow.attach(subManager)
 
-    new Batch(subManager, data, label, poseNum, Batchifier.STACK, Batchifier.STACK, batchIdx, numOfBatch)
-  }
-}
+    val batchDir = dirs.get(index)
+    batchDir.attach(subManager)
+    val batchRaysO = poseNow.get(":,-1")
+    var batchRaysD = batchDir.matMul(poseNow.get(":,:3").transpose(1, 0))
+    val batchRaysDNorm = batchRaysD.norm(Array(-1), true)
+    batchRaysD = batchRaysD.div(batchRaysDNorm)
+    val batchBounds = batchRaysDNorm.mul(2).concat(batchRaysDNorm.mul(6), -1)
+    val batchTime = times.get(poseIdx)
+    batchTime.attach(subManager)
 
-object dNerfDataSet {
-  private def getRaysNp(H: Int, W: Int, focal: Float, c2w: NDArray): (NDArray, NDArray) = {
-    //c2w：尺寸(3, 4)
-    val manager = c2w.getManager
-    val w = W * .5f / focal
-    val h = H * .5f / focal
-    val i = manager.linspace(-w, w, W).broadcast(H, W)
-    val j = manager.linspace(-h, h, H).reshape(H, 1).broadcast(H, W)
-    val dirs = NDArrays.stack(new NDList(i, j, manager.full(i.getShape, -1, DataType.FLOAT32)), -1)
-    val raysD = dirs.matMul(c2w.get(":,:3").transpose(1, 0))
-    (c2w.get(":,-1"), raysD.reshape(-1, 3))
-    //返回raysO和raysD
+    val batchImage = imagesHere.get(poseIdx).get(index)
+    batchImage.attach(subManager)
+
+    val data = new NDList(batchRaysO, batchRaysD, batchBounds, batchRaysD, batchTime)
+    val label = new NDList(batchImage)
+
+    new Batch(subManager, data, label, 1, Batchifier.STACK, Batchifier.STACK, 0, 1)
   }
 }
