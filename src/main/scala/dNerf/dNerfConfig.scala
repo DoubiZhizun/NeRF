@@ -42,6 +42,10 @@ case class dNerfConfig(
                         lrate: Double, //学习率
                         lrateDecay: Int, //学习率衰减，每lrateDecay * 1000个训练周期衰减到原来的0.1倍
 
+                        preCropFrac: Double, //图像中心的比例
+                        preCropIter: Int, //前若干个周期取图像的中心
+                        preCropIterTime: Int, //前若干个周期限制取图像的下标
+
                         //数据集设置
                         dataDir: String, //数据文件夹
                         logDir: String, //log文件夹
