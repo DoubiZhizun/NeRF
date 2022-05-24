@@ -144,8 +144,12 @@ final class dNerfCoreBlock(config: dNerfConfig, isCoarse: Boolean) extends Abstr
     val delta = deltaParameter.reshape(Shape.update(deltaParameter.getShape, deltaParameter.getShape.dimension() - 1, config.fourierL).add(3)).mul(timesFourier.expandDims(-1)).sum(Array(-2))
     new NDList(inputs.get(0).add(delta))
   } else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => {
-    val delta = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL), positionCode(inputs.get(2).reshape(1), config.timeL)), training, params).get(0)
-    new NDList(inputs.get(0).add(delta))
+    if(inputs.get(2).eq(0).getBoolean()){
+      new NDList(inputs.get(0))
+    }else{
+      val delta = timeBlock.forward(parameterStore, new NDList(positionCode(inputs.get(0), config.posL), positionCode(inputs.get(2).reshape(1), config.timeL)), training, params).get(0)
+      new NDList(inputs.get(0).add(delta))
+    }
   }
   else (parameterStore: ParameterStore, inputs: NDList, training: Boolean, params: PairList[String, AnyRef]) => new NDList(inputs.get(0))
   //时间处理函数

@@ -52,6 +52,4 @@ case class nerfConfig(
                        iVideo: Int, //多少次训练周期进行一次渲染视频
 
                        NIter: Int //总训练周期数
-                     ) {
-  var ps: ParameterStore = null
-}
+                     )

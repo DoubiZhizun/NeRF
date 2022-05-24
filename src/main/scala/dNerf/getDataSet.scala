@@ -62,7 +62,7 @@ object getDataSet {
 
       new NDList(trainPoses, testPoses, valPoses, trainTimes, testTimes, valTimes, trainImages, testImages, renderPoses, renderTimes).attach(manager)
       subManager.close()
-      (new dNerfDataSet(trainPoses, trainTimes, hwf, trainImages, config.batchNum, config.preCropFrac, config.preCropIter, config.preCropIterTime),
+      (new dNerfDataSet(trainPoses, trainTimes, hwf, trainImages, config.batchNum),
         new dNerfDataSet(testPoses, testTimes, hwf, testImages, config.batchNum),
         new dNerfRenderSet(valPoses, valTimes, hwf),
         new dNerfRenderSet(renderPoses, renderTimes, hwf))
