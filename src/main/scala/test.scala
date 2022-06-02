@@ -13,7 +13,10 @@ import java.nio.file.{Files, Paths}
 object test {
   def main(args: Array[String]): Unit = {
     val manager = NDManager.newBaseManager(Device.cpu())
-//    val config = nerfConfig(
+    val array = manager.arange(2).repeat(-1, 2)
+    val array2 = manager.arange(4).reshape(2, 2)
+    print(array2.get(new NDIndex().addPickDim(array).addAllDim()))
+    //    val config = nerfConfig(
     //      device = Device.gpu(2),
     //      dataSetType = "llff",
     //      factor = 8,
