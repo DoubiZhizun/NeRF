@@ -1,10 +1,10 @@
-package lutNerf
+package hashGridNerf
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index.NDIndex
 import ai.djl.ndarray.types._
 import ai.djl.training.dataset._
-import lutNerf.blender._
+import hashGridNerf.blender._
 
 object getDataSet {
 

@@ -1,4 +1,4 @@
-package lutNerf
+package hashGridNerf
 
 import ai.djl._
 
@@ -16,6 +16,10 @@ case class nerfConfig(
                        NSamples: Int, //采样点数
                        whiteBkgd: Boolean, //若为true，视背景为白色
                        batchNum: Int, //训练每批光线数
+                       //isLinearInterpolation: Boolean, //插值方式，true为三线性插值，false为最邻近插值
+                       //目前仅支持最邻近插值
+                       dirL: Int, //方向的位置编码阶数
+                       rawNoiseStd: Double, //混入的噪声的方差，若为0则不混入噪声
 
                        lrate: Double, //学习率
                        lrateDecay: Int, //学习率衰减，每lrateDecay * 1000个训练周期衰减到原来的0.1倍

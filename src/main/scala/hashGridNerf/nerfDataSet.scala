@@ -1,4 +1,4 @@
-package lutNerf
+package hashGridNerf
 
 import ai.djl.ndarray._
 import ai.djl.ndarray.index._
